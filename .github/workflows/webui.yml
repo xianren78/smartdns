@@ -6,15 +6,6 @@ on:
   pull_request:
     branches: [ master ]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g., v1.0.0)'
-        required: false
-        default: 'auto'
-      skip_tests:
-        description: 'Skip running tests? (true/false)'
-        required: false
-        default: 'false'
 
 jobs:
   build:
@@ -28,27 +19,37 @@ jobs:
         profile: minimal
         toolchain: stable
 
+    # 重新编译 libsmartdns-test.a 使用 -fPIC
+    - name: Prepare Test Library with -fPIC
+      run: |
+        cd plugin/smartdns-ui/../../src
+        make clean
+        make libsmartdns-test.a CFLAGS="-fPIC"
+
+    # 测试
     - name: Run Tests
-      if: github.event.inputs.skip_tests != 'true'
       run: |
         make -C plugin/smartdns-ui test
 
+    # 编译 Release 版本
     - name: Build Release
       run: |
         make -C plugin/smartdns-ui
 
+    # 打包
     - name: Package
       run: |
         mkdir -p release
         cp plugin/smartdns-ui/target/libsmartdns_ui.so release/
         tar -czvf smartdns-ui-release.tar.gz -C release .
 
+    # 创建并上传 Release
     - name: Create Release and Upload Artifact
       if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.event.inputs.version == 'auto' && format('v{0}', github.run_number) || github.event.inputs.version }}
-        release_name: ${{ github.event.inputs.version == 'auto' && format('Release v{0}', github.run_number) || format('Release {0}', github.event.inputs.version) }}
+        tag_name: "v${{ github.run_number }}"
+        release_name: "Release v${{ github.run_number }}"
         files: smartdns-ui-release.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
