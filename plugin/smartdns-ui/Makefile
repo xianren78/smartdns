@@ -23,15 +23,15 @@ SMARTDNS_SRC_DIR=../../src
 
 # Default to native target if not specified
 TARGET ?= $(shell rustc -vV | grep host | cut -d' ' -f2)
-CARGO_TARGET = $(if $(filter $(TARGET),$(shell rustc -vV | grep host | cut -d' ' -f2)),,$(TARGET))
+CARGO_TARGET = $(TARGET)  # Use TARGET directly
 
 ifdef DEBUG
 CARGO_BUILD_TYPE=
-CARGO_BUILD_PATH=target/$(if $(CARGO_TARGET),$(CARGO_TARGET)/)debug
+CARGO_BUILD_PATH=target/$(CARGO_TARGET)/debug
 SMARTDNS_BUILD_TYPE=DEBUG=1
 else
 CARGO_BUILD_TYPE=--release
-CARGO_BUILD_PATH=target/$(if $(CARGO_TARGET),$(CARGO_TARGET)/)release
+CARGO_BUILD_PATH=target/$(CARGO_TARGET)/release
 SMARTDNS_BUILD_TYPE=
 endif
 
@@ -43,18 +43,14 @@ test-prepare:
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
 $(BIN):
-ifdef CARGO_TARGET
 	MAKEFLAGS= cargo build $(CARGO_BUILD_TYPE) --target=$(CARGO_TARGET) --features "build-release"
-else
-	MAKEFLAGS= cargo build $(CARGO_BUILD_TYPE) --features "build-release"
-endif
 	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/
 
 install: $(BIN)
 	install -v -m 0644 -D -t $(DESTDIR)$(SLIBDIR)/smartdns target/libsmartdns_ui.so
 
 test: test-prepare
-	MAKEFLAGS= cargo test $(if $(CARGO_TARGET),--target=$(CARGO_TARGET))
+	MAKEFLAGS= cargo test --target=$(CARGO_TARGET)
 
 clean:
 	cargo clean

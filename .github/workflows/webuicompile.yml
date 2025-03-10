@@ -42,7 +42,7 @@ jobs:
       env:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         RUSTFLAGS: "-C target-feature=-crt-static"
-        TARGET: ${{ matrix.target }}  # Pass the target to Makefile
+        TARGET: ${{ matrix.target }}  # Ensure this is set
       run: |
         EXTRA_CFLAGS=-fPIC make
         mkdir -p release-${{ matrix.name }}
