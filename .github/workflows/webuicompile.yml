@@ -47,7 +47,9 @@ jobs:
         RUSTFLAGS: "-C target-feature=-crt-static"
         TARGET: ${{ matrix.target }}
       run: |
-        echo "Workflow TARGET=$TARGET"
+        echo "Building for TARGET=$TARGET"
+        ls -l /usr/include/bits/ || echo "Native headers not found"
+        ls -l /usr/aarch64-linux-gnu/include/bits/ || echo "aarch64 headers not found"
         EXTRA_CFLAGS=-fPIC make
         ls -l target/${{ matrix.target }}/release/
         mkdir -p release-${{ matrix.name }}
