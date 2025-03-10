@@ -13,7 +13,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 BIN=smartdns-ui
 PREFIX := /usr
 SBINDIR := $(PREFIX)/sbin
@@ -43,7 +42,15 @@ test-prepare:
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
 $(BIN):
+	@echo "CARGO_TARGET=$(CARGO_TARGET)"
+	@echo "CARGO_BUILD_PATH=$(CARGO_BUILD_PATH)"
 	MAKEFLAGS= cargo build $(CARGO_BUILD_TYPE) --target=$(CARGO_TARGET) --features "build-release"
+	@if [ ! -f "$(CARGO_BUILD_PATH)/libsmartdns_ui.so" ]; then \
+		echo "Error: $(CARGO_BUILD_PATH)/libsmartdns_ui.so not found"; \
+		ls -l $(CARGO_BUILD_PATH) || echo "Directory $(CARGO_BUILD_PATH) does not exist"; \
+		exit 1; \
+	fi
+	@echo "Copying $(CARGO_BUILD_PATH)/libsmartdns_ui.so to target/"
 	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/
 
 install: $(BIN)

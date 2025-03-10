@@ -44,11 +44,11 @@ jobs:
         RUSTFLAGS: "-C target-feature=-crt-static"
         TARGET: ${{ matrix.target }}
       run: |
-        echo "TARGET=$TARGET"
-        EXTRA_CFLAGS=-fPIC make -n  # Show commands without executing
+        echo "Workflow TARGET=$TARGET"
         EXTRA_CFLAGS=-fPIC make
-        ls -l target/${{ matrix.target }}/release/  # Check if the file exists
+        ls -l target/${{ matrix.target }}/release/ || echo "Failed to list target/${{ matrix.target }}/release/"
         mkdir -p release-${{ matrix.name }}
+        echo "Workflow copying: cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/"
         cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/
 
     - name: Collect dynamic dependencies
