@@ -13,8 +13,8 @@ jobs:
     strategy:
       matrix:
         target:
-          - x86_64-unknown-linux-musl  # Use musl for x86-64
-          - aarch64-unknown-linux-musl  # Use musl for aarch64
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
         include:
           - target: x86_64-unknown-linux-musl
             name: x86-64
@@ -31,17 +31,26 @@ jobs:
         profile: minimal
         toolchain: stable
         target: ${{ matrix.target }}
-        components: rust-std  # Ensure musl targets are available
+        components: rust-std
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential musl-tools
+        sudo apt-get install -y build-essential musl-tools wget
+        # Install musl cross-compiler for aarch64
+        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+          wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar -xzf aarch64-linux-musl-cross.tgz
+          sudo mv aarch64-linux-musl-cross /opt/aarch64-linux-musl-cross
+          echo "/opt/aarch64-linux-musl-cross/bin" | sudo tee -a $GITHUB_PATH
+        fi
 
     - name: Build libsmartdns_ui.so
       working-directory: plugin/smartdns-ui
       env:
         TARGET: ${{ matrix.target }}
+        CC_aarch64_unknown_linux_musl: /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc  # Set aarch64 compiler
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc  # Set linker
       run: |
         echo "Building for TARGET=$TARGET"
         EXTRA_CFLAGS=-fPIC make
