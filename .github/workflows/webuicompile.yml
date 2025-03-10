@@ -42,9 +42,12 @@ jobs:
       env:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         RUSTFLAGS: "-C target-feature=-crt-static"
-        TARGET: ${{ matrix.target }}  # Ensure this is set
+        TARGET: ${{ matrix.target }}
       run: |
+        echo "TARGET=$TARGET"
+        EXTRA_CFLAGS=-fPIC make -n  # Show commands without executing
         EXTRA_CFLAGS=-fPIC make
+        ls -l target/${{ matrix.target }}/release/  # Check if the file exists
         mkdir -p release-${{ matrix.name }}
         cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/
 

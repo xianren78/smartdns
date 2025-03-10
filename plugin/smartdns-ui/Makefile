@@ -23,7 +23,7 @@ SMARTDNS_SRC_DIR=../../src
 
 # Default to native target if not specified
 TARGET ?= $(shell rustc -vV | grep host | cut -d' ' -f2)
-CARGO_TARGET = $(TARGET)  # Use TARGET directly
+CARGO_TARGET = $(TARGET)
 
 ifdef DEBUG
 CARGO_BUILD_TYPE=
