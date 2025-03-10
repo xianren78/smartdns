@@ -13,7 +13,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Setup Rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -48,7 +48,7 @@ jobs:
         ls -lh smartdns-ui-release.tar.gz
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: smartdns-ui-release
         path: plugin/smartdns-ui/smartdns-ui-release.tar.gz
