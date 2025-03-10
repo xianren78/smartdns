@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04  # Changed to 20.04 (glibc 2.31)
     strategy:
       matrix:
         target:
@@ -46,9 +46,8 @@ jobs:
       run: |
         echo "Workflow TARGET=$TARGET"
         EXTRA_CFLAGS=-fPIC make
-        ls -l target/${{ matrix.target }}/release/ || echo "Failed to list target/${{ matrix.target }}/release/"
+        ls -l target/${{ matrix.target }}/release/
         mkdir -p release-${{ matrix.name }}
-        echo "Workflow copying: cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/"
         cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/
 
     - name: Collect dynamic dependencies
