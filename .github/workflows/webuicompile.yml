@@ -13,12 +13,12 @@ jobs:
     strategy:
       matrix:
         target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl  # Use musl for x86-64
+          - aarch64-unknown-linux-musl  # Use musl for aarch64
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             name: x86-64
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             name: aarch64_generic
 
     steps:
@@ -31,43 +31,28 @@ jobs:
         profile: minimal
         toolchain: stable
         target: ${{ matrix.target }}
+        components: rust-std  # Ensure musl targets are available
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libc6-dev gcc-10 g++-10 gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100
-        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
-        gcc --version
+        sudo apt-get install -y build-essential musl-tools
 
     - name: Build libsmartdns_ui.so
       working-directory: plugin/smartdns-ui
       env:
-        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        RUSTFLAGS: "-C target-feature=-crt-static"
         TARGET: ${{ matrix.target }}
       run: |
         echo "Building for TARGET=$TARGET"
-        ls -l /usr/include/bits/ || echo "Native headers not found"
-        ls -l /usr/aarch64-linux-gnu/include/bits/ || echo "aarch64 headers not found"
         EXTRA_CFLAGS=-fPIC make
         ls -l target/${{ matrix.target }}/release/
         mkdir -p release-${{ matrix.name }}
         cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/
 
-    - name: Collect dynamic dependencies
+    - name: Verify dependencies
       working-directory: plugin/smartdns-ui/release-${{ matrix.name }}
       run: |
-        if [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
-          ldd libsmartdns_ui.so | grep "=> /" | awk '{print $3}' | xargs -I {} cp {} . || true
-          cp /lib64/ld-linux-x86-64.so.2 . || cp /usr/lib64/ld-linux-x86-64.so.2 . || true
-        else
-          cp /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 . || true
-          cp /usr/aarch64-linux-gnu/lib/libc.so.6 . || true
-          cp /usr/aarch64-linux-gnu/lib/libm.so.6 . || true
-        fi
-        chmod 644 *.so
-        ls -l
+        ldd libsmartdns_ui.so || echo "ldd output (expected to show minimal dependencies with musl)"
 
     - name: Package release
       working-directory: plugin/smartdns-ui

@@ -35,38 +35,21 @@ fn link_smartdns_lib() {
     let smartdns_lib_file = format!("{}/libsmartdns-test.a", smartdns_src_dir);
 
     let target = env::var("TARGET").expect("TARGET environment variable not set");
-    let cc = env::var("RUSTC_LINKER")
-        .unwrap_or_else(|_| env::var("CC").unwrap_or_else(|_| "cc".to_string()));
-
-    let sysroot_output = std::process::Command::new(&cc)
-        .arg("--print-sysroot")
-        .output();
-    let mut sysroot = None;
-    if let Ok(output) = sysroot_output {
-        if output.status.success() {
-            let path = String::from_utf8(output.stdout).unwrap();
-            sysroot = Some(path.trim().to_string());
-        }
-    }
-
     let ignored_macros = IgnoreMacros(vec!["IPPORT_RESERVED".into()].into_iter().collect());
     let mut bindings_builder =
         bindgen::Builder::default().header(format!("{}/smartdns.h", smartdns_src_dir));
 
-    // Target-specific clang arguments
-    if target == "aarch64-unknown-linux-gnu" {
-        bindings_builder = bindings_builder
-            .clang_arg("--target=aarch64-linux-gnu")
-            .clang_arg("-I/usr/aarch64-linux-gnu/include");
+    // Target-specific clang arguments for musl
+    if target.contains("musl") {
+        bindings_builder = bindings_builder.clang_arg("-I/usr/include");  // musl headers are typically in /usr/include
     } else if target == "x86_64-unknown-linux-gnu" {
         bindings_builder = bindings_builder
             .clang_arg("-I/usr/include")
             .clang_arg("-I/usr/include/x86_64-linux-gnu");
-    }
-
-    // Apply sysroot if available (optional for cross-compilation)
-    if let Some(sysroot) = sysroot {
-        bindings_builder = bindings_builder.clang_arg(format!("--sysroot={}", sysroot));
+    } else if target == "aarch64-unknown-linux-gnu" {
+        bindings_builder = bindings_builder
+            .clang_arg("--target=aarch64-linux-gnu")
+            .clang_arg("-I/usr/aarch64-linux-gnu/include");
     }
 
     let bindings = bindings_builder
