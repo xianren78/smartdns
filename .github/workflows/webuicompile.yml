@@ -10,7 +10,17 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+        include:
+          - target: x86_64-unknown-linux-gnu
+            name: x86-64
+          - target: aarch64-unknown-linux-gnu
+            name: aarch64_generic
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -20,45 +30,56 @@ jobs:
       with:
         profile: minimal
         toolchain: stable
+        target: ${{ matrix.target }}  # 添加目标架构
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libc6-dev
+        sudo apt-get install -y build-essential libc6-dev gcc-aarch64-linux-gnu
+        rustup target add ${{ matrix.target }}
 
     - name: Build libsmartdns_ui.so
       working-directory: plugin/smartdns-ui
+      env:
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
       run: |
         EXTRA_CFLAGS=-fPIC make
-        mkdir -p release
-        cp target/libsmartdns_ui.so release/
+        mkdir -p release-${{ matrix.name }}
+        cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/
 
     - name: Collect dynamic dependencies
-      working-directory: plugin/smartdns-ui/release
+      working-directory: plugin/smartdns-ui/release-${{ matrix.name }}
       run: |
-        # 使用 ldd 查看依赖并复制必要的动态库
-        ldd libsmartdns_ui.so | grep "=> /" | awk '{print $3}' | xargs -I {} cp {} .
-        # 确保包含 ld-linux-x86-64.so.2
-        cp /lib64/ld-linux-x86-64.so.2 . || cp /usr/lib64/ld-linux-x86-64.so.2 . || true
+        # 对于 x86-64 使用原生 ldd，对于 aarch64 使用交叉工具链的 ldd
+        if [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
+          ldd libsmartdns_ui.so | grep "=> /" | awk '{print $3}' | xargs -I {} cp {} . || true
+          cp /lib64/ld-linux-x86-64.so.2 . || cp /usr/lib64/ld-linux-x86-64.so.2 . || true
+        else
+          # 对于 aarch64，我们需要手动指定常见依赖，因为无法直接运行 ldd
+          cp /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 . || true
+          cp /usr/aarch64-linux-gnu/lib/libc.so.6 . || true
+          cp /usr/aarch64-linux-gnu/lib/libm.so.6 . || true
+        fi
 
     - name: Package release
       working-directory: plugin/smartdns-ui
       run: |
-        tar -czvf smartdns-ui-release.tar.gz -C release .
-        ls -lh smartdns-ui-release.tar.gz
+        tar -czvf smartdns-ui-release-${{ matrix.name }}.tar.gz -C release-${{ matrix.name }} .
+        ls -lh smartdns-ui-release-${{ matrix.name }}.tar.gz
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: smartdns-ui-release
-        path: plugin/smartdns-ui/smartdns-ui-release.tar.gz
+        name: smartdns-ui-release-${{ matrix.name }}
+        path: plugin/smartdns-ui/smartdns-ui-release-${{ matrix.name }}.tar.gz
         retention-days: 30
+        if-no-files-found: error
 
     - name: Create Release and Upload
       if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
-        files: plugin/smartdns-ui/smartdns-ui-release.tar.gz
+        files: plugin/smartdns-ui/smartdns-ui-release-${{ matrix.name }}.tar.gz
         tag_name: "v${{ github.run_number }}"
         name: "SmartDNS UI Release ${{ github.run_number }}"
         draft: false
