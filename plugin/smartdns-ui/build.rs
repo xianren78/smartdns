@@ -34,6 +34,7 @@ fn link_smartdns_lib() {
     let smartdns_src_dir = format!("{}/../../src", curr_source_dir);
     let smartdns_lib_file = format!("{}/libsmartdns-test.a", smartdns_src_dir);
 
+    let target = env::var("TARGET").expect("TARGET environment variable not set");
     let cc = env::var("RUSTC_LINKER")
         .unwrap_or_else(|_| env::var("CC").unwrap_or_else(|_| "cc".to_string()));
 
@@ -49,12 +50,25 @@ fn link_smartdns_lib() {
     }
 
     let ignored_macros = IgnoreMacros(vec!["IPPORT_RESERVED".into()].into_iter().collect());
-
     let mut bindings_builder =
         bindgen::Builder::default().header(format!("{}/smartdns.h", smartdns_src_dir));
+
+    // Target-specific clang arguments
+    if target == "aarch64-unknown-linux-gnu" {
+        bindings_builder = bindings_builder
+            .clang_arg("--target=aarch64-linux-gnu")
+            .clang_arg("-I/usr/aarch64-linux-gnu/include");
+    } else if target == "x86_64-unknown-linux-gnu" {
+        bindings_builder = bindings_builder
+            .clang_arg("-I/usr/include")
+            .clang_arg("-I/usr/include/x86_64-linux-gnu");
+    }
+
+    // Apply sysroot if available (optional for cross-compilation)
     if let Some(sysroot) = sysroot {
         bindings_builder = bindings_builder.clang_arg(format!("--sysroot={}", sysroot));
     }
+
     let bindings = bindings_builder
         .clang_arg(format!("-I{}/include", smartdns_src_dir))
         .parse_callbacks(Box::new(ignored_macros))
@@ -65,10 +79,7 @@ fn link_smartdns_lib() {
     bindings
         .write_to_file(out_path.join("smartdns_bindings.rs"))
         .expect("Couldn't write bindings!");
-    /*
-    to run tests, please run the following command:
-    make test-prepare
-    */
+
     if std::path::Path::new(&smartdns_lib_file).exists() && !cfg!(feature = "build-release") {
         println!("cargo:rerun-if-changed={}", smartdns_lib_file);
         println!("cargo:rustc-link-lib=static=smartdns-test");
