@@ -25,9 +25,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            musl-tools \
-            # For x86_64 musl, musl-gcc is part of musl-tools
-            qemu-user-static
+            musl-tools qemu-user-static
 
           # -------------------------------------------------------------
           # 1) If your environment provides an aarch64 musl cross-compiler
