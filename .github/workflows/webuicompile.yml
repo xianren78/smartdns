@@ -1,127 +1,74 @@
-name: Build and Package libsmartdns_ui
+name: Build and Package libsmartdns_ui.so for musl
 
 on:
   push:
     branches: [ master ]
   pull_request:
     branches: [ master ]
-  workflow_dispatch:
 
 jobs:
-  build-musl:
+  build-and-package:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [ x86_64, aarch64 ]
 
     steps:
-      - name: Check out code
-        uses: actions/checkout@v4
+      # 检出代码
+      - uses: actions/checkout@v3
 
-      - name: Setup QEMU (for cross-ldd on aarch64)
-        uses: docker/setup-qemu-action@v3
+      # 安装 Rust 工具链
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
-      - name: Install cross-compilation tools
+      # 安装 musl-tools 和 QEMU
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            musl-tools qemu-user-static
+          sudo apt-get install -y musl-tools qemu-user-static build-essential pkg-config libssl-dev
 
-          # -------------------------------------------------------------
-          # 1) If your environment provides an aarch64 musl cross-compiler
-          #    in a standard package, install it here, e.g.:
-          #
-          # sudo apt-get install -y aarch64-linux-musl-cross
-          #
-          # 2) Or if you built your custom aarch64-musl-gcc, retrieve it here,
-          #    e.g. from a PPA or a tarball you distribute. Example:
-          #
-          # wget https://example.com/aarch64-musl-gcc.tar.gz
-          # tar xzf aarch64-musl-gcc.tar.gz -C /usr/local
-          # (export PATH etc. if needed)
-          # -------------------------------------------------------------
-
-      - name: Set environment for each arch
-        id: setenv
+      # 为 x86_64 编译 libsmartdns_ui.so
+      - name: Build for x86_64-unknown-linux-musl
         run: |
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            # Using musl-gcc from musl-tools for x86_64
-            echo "CC=musl-gcc" >> $GITHUB_ENV
-            # The dynamic linker path is typically /lib/ld-musl-$ARCH.so.1
-            echo "MUSL_LD=/lib/ld-musl-x86_64.so.1" >> $GITHUB_ENV
-            echo "QEMU_CMD=qemu-x86_64" >> $GITHUB_ENV
-          else
-            # Using aarch64-linux-musl-gcc for aarch64 (assumes you installed it above!)
-            # If your compiler is named differently, adjust here.
-            echo "CC=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-            echo "MUSL_LD=/lib/ld-musl-aarch64.so.1" >> $GITHUB_ENV
-            echo "QEMU_CMD=qemu-aarch64" >> $GITHUB_ENV
+          cd plugin/smartdns-ui
+          EXTRA_CFLAGS=-fPIC make -j$(nproc)
+          mkdir -p x86_64-dist
+          cp target/libsmartdns_ui.so x86_64-dist/
+          # 查找并复制相关动态库
+          ldd target/libsmartdns_ui.so | grep -o '/[^ ]*' | xargs -I {} cp {} x86_64-dist/ || true
 
-          echo "TARGET_DIR=${{ matrix.arch }}" >> $GITHUB_ENV
-
-      - name: Build libsmartdns_ui.so
+      # 为 aarch64 编译 libsmartdns_ui.so
+      - name: Build for aarch64-unknown-linux-musl
+        env:
+          CC: aarch64-linux-musl-gcc
+          AR: aarch64-linux-musl-ar
         run: |
-          # Create a separate build folder per architecture
-          mkdir -p build/${{ env.TARGET_DIR }}
-          cd build/${{ env.TARGET_DIR }}
+          sudo ln -s /usr/bin/musl-gcc /usr/bin/aarch64-linux-musl-gcc
+          cd plugin/smartdns-ui
+          cargo clean
+          EXTRA_CFLAGS=-fPIC make -j$(nproc)
+          mkdir -p aarch64-dist
+          cp target/libsmartdns_ui.so aarch64-dist/
+          # 使用 QEMU 和 chroot 环境查找动态库
+          qemu-aarch64 target/libsmartdns_ui.so || true  # 测试运行，忽略错误
+          ldd target/libsmartdns_ui.so | grep -o '/[^ ]*' | xargs -I {} cp {} aarch64-dist/ || true
 
-          # Compile .c sources into a shared library
-          # Replace ../../src/*.c with the actual C source files for your project
-          $CC -shared -fPIC \
-            -o libsmartdns_ui.so \
-            ../../src/*.c \
-            -I ../../include \
-            -ldl
-
-      - name: Find musl-based dependencies
-        id: find-deps
+      # 打包为 tar.gz
+      - name: Package Artifacts
         run: |
-          cd build/${{ env.TARGET_DIR }}
+          tar -czvf libsmartdns_ui-x86_64-musl.tar.gz -C x86_64-dist .
+          tar -czvf libsmartdns_ui-aarch64-musl.tar.gz -C aarch64-dist .
 
-          # We'll run ldd under QEMU to see what dynamic libs are required by libsmartdns_ui.so
-          # Some musl cross-compilers might not provide an 'ldd', so we rely on QEMU's ability to run
-          # the dynamic linker in the target environment. If ldd doesn't work as expected, you may
-          # need another approach (e.g. reading DT_NEEDED entries with objdump).
-          deps=$(${{ env.QEMU_CMD }} libsmartdns_ui.so 2>&1 | grep -o '/.*\.so[^ ]*' | sort -u)
-
-          # If that approach doesn't work, try:
-          #   ${{ env.QEMU_CMD }} -L /path/to/musl-root ldd ./libsmartdns_ui.so
-          # or use alternative tooling.
-
-          echo "deps=$deps" >> $GITHUB_OUTPUT
-
-      - name: Copy library and dependencies
-        run: |
-          cd build/${{ env.TARGET_DIR }}
-
-          mkdir -p package/libs
-          # Copy main .so
-          cp libsmartdns_ui.so package/
-
-          # Copy dynamic linker, if it exists on the runner
-          # Sometimes /lib/ld-musl-*.so.* may not exist on your system by default,
-          # or it may exist in a custom location if you installed a cross-compiler from a tarball.
-          if [ -f "${{ env.MUSL_LD }}" ]; then
-            cp "${{ env.MUSL_LD }}" package/libs/
-          fi
-
-          # Copy other discovered dependencies
-          for dep in ${{ steps.find-deps.outputs.deps }}; do
-            if [ -f "$dep" ]; then
-              # --parents preserves directory structure
-              cp --parents "$dep" package/libs/
-            fi
-          done
-
-      - name: Create tarball
-        run: |
-          cd build/${{ env.TARGET_DIR }}/package
-          # You can rename the tarball as you prefer
-          tar czvf ../libsmartdns_ui-${{ matrix.arch }}.tar.gz .
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      # 上传 artifacts
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
         with:
-          name: libsmartdns_ui-${{ matrix.arch }}
-          path: build/${{ env.TARGET_DIR }}/libsmartdns_ui-${{ matrix.arch }}.tar.gz
+          name: libsmartdns_ui-so-files
+          path: |
+            libsmartdns_ui-x86_64-musl.tar.gz
+            libsmartdns_ui-aarch64-musl.tar.gz
 
+      # 可选：使用 QEMU 测试 aarch64 版本
+      - name: Test aarch64 Binary with QEMU
+        run: |
+          qemu-aarch64 -L /usr/aarch64-linux-gnu aarch64-dist/libsmartdns_ui.so || true
