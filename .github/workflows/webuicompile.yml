@@ -1,4 +1,4 @@
-name: Build and Release SmartDNS UI
+name: Build and Package libsmartdns_ui
 
 on:
   push:
@@ -8,83 +8,91 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-20.04
+  build:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-        include:
-          - target: x86_64-unknown-linux-musl
-            name: x86-64
-          - target: aarch64-unknown-linux-musl
-            name: aarch64_generic
-
+        target_arch: [x86_64, aarch64]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        target: ${{ matrix.target }}
-        components: rust-std
+    - name: Setup QEMU
+      uses: docker/setup-qemu-action@v3
 
-    - name: Install dependencies
+    - name: Install cross-compilation tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential musl-tools wget
-        # Install musl cross-compiler for aarch64
-        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-          wget -q https://musl.cc/aarch64-linux-musl-cross.tgz
-          tar -xzf aarch64-linux-musl-cross.tgz
-          sudo mv aarch64-linux-musl-cross /opt/aarch64-linux-musl-cross
-          echo "/opt/aarch64-linux-musl-cross/bin" | sudo tee -a $GITHUB_PATH
+        sudo apt-get install -y \
+          build-essential \
+          musl-tools \
+          gcc-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu \
+          qemu-user-static \
+          libc6-dev-arm64-cross
+
+    - name: Configure environment
+      run: |
+        if [ "${{ matrix.target_arch }}" = "x86_64" ]; then
+          export CC="musl-gcc -static"
+          export TARGET_DIR="x86_64"
+        else
+          export CC="aarch64-linux-gnu-gcc --sysroot=/usr/aarch64-linux-gnu"
+          export TARGET_DIR="aarch64"
         fi
+        mkdir -p build/$TARGET_DIR
+        echo "CC=$CC" >> $GITHUB_ENV
+        echo "TARGET_DIR=$TARGET_DIR" >> $GITHUB_ENV
 
     - name: Build libsmartdns_ui.so
-      working-directory: plugin/smartdns-ui
-      env:
-        TARGET: ${{ matrix.target }}
-        CC_aarch64_unknown_linux_musl: /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc  # Set aarch64 compiler
-        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc  # Set linker
+      working-directory: ./build/${{ env.TARGET_DIR }}
       run: |
-        echo "Building for TARGET=$TARGET"
-        EXTRA_CFLAGS=-fPIC make
-        ls -l target/${{ matrix.target }}/release/
-        mkdir -p release-${{ matrix.name }}
-        cp target/${{ matrix.target }}/release/libsmartdns_ui.so release-${{ matrix.name }}/
+        $CC -shared -fPIC \
+          -o libsmartdns_ui.so \
+          ../../src/*.c \
+          -I../../include \
+          -ldl
 
-    - name: Verify dependencies
-      working-directory: plugin/smartdns-ui/release-${{ matrix.name }}
+    - name: Find dependencies
+      id: find-deps
+      working-directory: ./build/${{ env.TARGET_DIR }}
       run: |
-        ldd libsmartdns_ui.so || echo "ldd output (expected to show minimal dependencies with musl)"
+        # 使用qemu模拟执行环境查找依赖
+        deps=$(qemu-${{ matrix.target_arch }} -L /usr/${{ matrix.target_arch }}-linux-gnu \
+          ldd libsmartdns_ui.so | \
+          grep -o '/.*\.so[^ ]*' | \
+          sort -u)
+        
+        mkdir -p package/${{ env.TARGET_DIR }}/libs
+        echo "deps=$(echo $deps | tr '\n' ' ')" >> $GITHUB_OUTPUT
 
-    - name: Package release
-      working-directory: plugin/smartdns-ui
+    - name: Copy libraries
+      working-directory: ./build/${{ env.TARGET_DIR }}
       run: |
-        tar -czvf smartdns-ui-release-${{ matrix.name }}.tar.gz -C release-${{ matrix.name }} .
-        ls -lh smartdns-ui-release-${{ matrix.name }}.tar.gz
+        # 复制主库
+        cp libsmartdns_ui.so package/${{ env.TARGET_DIR }}/
+        
+        # 复制依赖库
+        for dep in ${{ steps.find-deps.outputs.deps }}; do
+          if [ -f "$dep" ]; then
+            cp --parents "$dep" package/${{ env.TARGET_DIR }}/libs/
+          fi
+        done
 
-    - name: Upload artifact
+        # 复制动态链接器
+        if [ "${{ matrix.target_arch }}" = "x86_64" ]; then
+          cp /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 package/${{ env.TARGET_DIR }}/libs/
+        else
+          cp /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 package/${{ env.TARGET_DIR }}/libs/
+        fi
+
+    - name: Package artifacts
+      run: |
+        cd build/${{ env.TARGET_DIR }}/package/${{ env.TARGET_DIR }}
+        tar czvf ../libsmartdns_ui-${{ matrix.target_arch }}.tar.gz .
+
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: smartdns-ui-release-${{ matrix.name }}
-        path: plugin/smartdns-ui/smartdns-ui-release-${{ matrix.name }}.tar.gz
-        retention-days: 30
-        if-no-files-found: error
-
-    - name: Create Release and Upload
-      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-      uses: softprops/action-gh-release@v2
-      with:
-        files: plugin/smartdns-ui/smartdns-ui-release-${{ matrix.name }}.tar.gz
-        tag_name: "v${{ github.run_number }}"
-        name: "SmartDNS UI Release ${{ github.run_number }}"
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: libsmartdns_ui-${{ matrix.target_arch }}
+        path: build/${{ env.TARGET_DIR }}/package/libsmartdns_ui-${{ matrix.target_arch }}.tar.gz
