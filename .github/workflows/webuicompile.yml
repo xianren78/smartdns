@@ -2,9 +2,8 @@ name: Build and Release libsmartdns_ui
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    tags:
+      - 'v*'
 
 jobs:
   create_release:
@@ -28,7 +27,7 @@ jobs:
     needs: create_release
     steps:
       - name: Checkout code
-        uses: actions/check-out@v2
+        uses: actions/checkout@v4
 
       - name: Build x86_64
         run: |
@@ -71,7 +70,7 @@ jobs:
     needs: create_release
     steps:
       - name: Checkout code
-        uses: actions/check-out@v2
+        uses: actions/checkout@v4
 
       - name: Build aarch64
         run: |
