@@ -49,18 +49,15 @@ jobs:
             cat /etc/os-release &&  # Debug: Confirm Alpine OS
             echo 'Current PATH: \$PATH' &&
             ls -la /sbin/apk || echo 'apk binary not found in /sbin' &&
-            /sbin/apk update || { echo 'apk not found or failed'; exit 1; } &&
+            /sbin/apk update || { echo 'apk update failed'; exit 1; } &&
             /sbin/apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-dev musl-dev curl gcompat linux-headers &&
-            # Install aarch64 cross-compiler if needed
-            if [ '${{ matrix.arch }}' = 'aarch64' ]; then \
-              curl -L https://musl.cc/aarch64-linux-musl-cross.tgz -o /tmp/aarch64-cross.tgz && \
-              tar -xzf /tmp/aarch64-cross.tgz -C /usr/local && \
-              ln -s /usr/local/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc /usr/bin/aarch64-linux-musl-gcc; \
-            fi &&
+            # Install rustup if not present
+            which rustup || { curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0 && source \$HOME/.cargo/env; } &&
+            rustup --version || { echo 'rustup installation failed'; exit 1; } &&
             rustup update 1.81.0 &&
             rustup default 1.81.0 &&
             rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl &&
-            rustc --version && cargo --version || { echo 'Rust installation failed'; exit 1; } &&
+            rustc --version && cargo --version || { echo 'Rust setup failed'; exit 1; } &&
             echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&
             echo 'CC is set to: \$CC' && which \$CC || echo 'CC not found' &&
             ls -la /usr/lib/libclang* &&  # Debug: Check libclang files
