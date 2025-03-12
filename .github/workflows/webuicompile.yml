@@ -50,6 +50,7 @@ jobs:
             apk add --no-cache curl build-base openssl-dev pkgconf perl make &&
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0 &&
             source \$HOME/.cargo/env &&
+            rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl &&  # Add required targets
             rustc --version && cargo --version || { echo 'Rust installation failed'; exit 1; } &&
             echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&
             cd /workdir/plugin/smartdns-ui &&
