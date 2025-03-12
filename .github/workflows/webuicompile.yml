@@ -33,7 +33,7 @@ jobs:
       - name: Build x86_64
         run: |
           docker pull messense/rust-musl-cross:x86_64-musl
-          docker run --rm -v $(pwd):/workspace jess/alpine-rust /bin/bash -c "
+          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:x86_64-musl /bin/bash -c "
             cd /workspace
             cargo build --target x86_64-unknown-linux-musl --release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
@@ -76,7 +76,7 @@ jobs:
       - name: Build aarch64
         run: |
           docker pull messense/rust-musl-cross:aarch64-musl
-          docker run --rm -v $(pwd):/workspace dlr-e/musl-cross-aarch64 /bin/bash -c "
+          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:aarch64-musl /bin/bash -c "
             apk add --no-cache curl
             curl -sSf https://sh.rustup.rs | sh -s -- -y
             source $HOME/.cargo/env
