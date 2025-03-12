@@ -31,8 +31,8 @@ jobs:
 
       - name: Build x86_64
         run: |
-          docker pull rustcross/rust-musl-cross:x86_64-musl
-          docker run --rm -v $(pwd):/workspace rustcross/rust-musl-cross:x86_64-musl /bin/bash -c "
+          docker pull messense/rust-musl-cross:x86_64-musl
+          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:x86_64-musl /bin/bash -c "
             cd /workspace
             cargo build --target x86_64-unknown-linux-musl --release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
@@ -74,8 +74,8 @@ jobs:
 
       - name: Build aarch64
         run: |
-          docker pull rustcross/rust-musl-cross:aarch64-musl
-          docker run --rm -v $(pwd):/workspace rustcross/rust-musl-cross:aarch64-musl /bin/bash -c "
+          docker pull messense/rust-musl-cross:aarch64-musl
+          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:aarch64-musl /bin/bash -c "
             apk add --no-cache qemu-user-static
             cd /workspace
             cargo build --target aarch64-unknown-linux-musl --release
