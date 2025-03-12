@@ -32,7 +32,7 @@ jobs:
 
       - name: Build x86_64
         run: |
-          docker pull jess/alpine-rust
+          docker pull messense/rust-musl-cross:x86_64-musl
           docker run --rm -v $(pwd):/workspace jess/alpine-rust /bin/bash -c "
             cd /workspace
             cargo build --target x86_64-unknown-linux-musl --release
@@ -75,7 +75,7 @@ jobs:
 
       - name: Build aarch64
         run: |
-          docker pull dlr-e/musl-cross-aarch64
+          docker pull messense/rust-musl-cross:aarch64-musl
           docker run --rm -v $(pwd):/workspace dlr-e/musl-cross-aarch64 /bin/bash -c "
             apk add --no-cache curl
             curl -sSf https://sh.rustup.rs | sh -s -- -y
