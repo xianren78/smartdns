@@ -45,9 +45,9 @@ jobs:
       - name: Build libsmartdns_ui.so in Docker
         run: |
           mkdir -p build/${{ matrix.arch }}
-          docker run -i --rm -v ${{ github.workspace }}:/workdir -e CC=${{ env.CC }} -e LIBCLANG_STATIC=1 -e LIBCLANG_PATH=/usr/lib -e RUST_BACKTRACE=1 rust:alpine sh -c "
+          docker run -i --rm -v ${{ github.workspace }}:/workdir -e CC=${{ env.CC }} -e LIBCLANG_STATIC=1 -e LIBCLANG_PATH=/usr/lib -e CLANG_PATH=/usr/bin/clang -e RUST_BACKTRACE=1 -e PATH=/usr/local/bin:/usr/bin:/bin rust:alpine sh -c "
             apk update &&
-            apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-libs musl-dev curl gcompat linux-headers &&  # Added clang-libs, linux-headers
+            apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-dev musl-dev curl gcompat linux-headers &&  # Added clang-dev
             # Install aarch64 cross-compiler if needed
             if [ '${{ matrix.arch }}' = 'aarch64' ]; then \
               curl -L https://musl.cc/aarch64-linux-musl-cross.tgz -o /tmp/aarch64-cross.tgz && \
@@ -61,9 +61,10 @@ jobs:
             echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&
             echo 'CC is set to: \$CC' && which \$CC || echo 'CC not found' &&
             ls -la /usr/lib/libclang* &&  # Debug: Check libclang files
+            ls -la /usr/bin/musl-gcc || echo 'musl-gcc not found in /usr/bin' &&
             # Test compiler
             echo 'int main() { return 0; }' > /tmp/test.c &&
-            \$CC -o /tmp/test /tmp/test.c && echo 'Compiler test succeeded' || echo 'Compiler test failed' &&
+            \$CC -o /tmp/test /tmp/test.c && echo 'Compiler test succeeded' || { echo 'Compiler test failed'; exit 1; } &&
             cd /workdir/plugin/smartdns-ui &&
             cargo build --release --target ${{ env.TARGET }} --verbose &&
             cp target/${{ env.TARGET }}/release/libsmartdns_ui.so /workdir/build/${{ matrix.arch }}/
