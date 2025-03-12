@@ -46,11 +46,12 @@ jobs:
         run: |
           mkdir -p build/${{ matrix.arch }}
           docker run -i --rm -v ${{ github.workspace }}:/workdir ${{ env.DOCKER_IMAGE }} sh -c "
+            apk update &&
             apk add --no-cache curl build-base openssl-dev pkgconf perl make &&
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0 &&
             source \$HOME/.cargo/env &&
-            rustc --version && cargo --version &&  # Verify Rust and Cargo versions
-            echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&  # Debug: Show Cargo.toml
+            rustc --version && cargo --version || { echo 'Rust installation failed'; exit 1; } &&
+            echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&
             cd /workdir/plugin/smartdns-ui &&
             cargo build --release --target ${{ env.TARGET }} &&
             cp target/${{ env.TARGET }}/release/libsmartdns_ui.so /workdir/build/${{ matrix.arch }}/
