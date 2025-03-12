@@ -5,11 +5,12 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+
 jobs:
   create_release:
-    runs-on: Ubuntu-22.04
+    runs-on: ubuntu-22.04
     outputs:
-      upload_url: ${{ steps.create_release.output.id }}
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
       - name: Create Release
         id: create_release
@@ -17,13 +18,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
           draft: true
           prerelease: false
 
   build_x86_64:
-    runs-on: Ubuntu-22.04
+    runs-on: ubuntu-22.04
     needs: create_release
     steps:
       - name: Checkout code
@@ -33,7 +34,7 @@ jobs:
         run: |
           docker pull messense/rust-musl-cross:x86_64-musl
           docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl /bin/bash -c "
-            cd /home/rust/src
+            cd /home/rust/src/plugin/smartdns-ui
             cargo build --target x86_64-unknown-linux-musl --release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
             if [ ! -f \"\$LIB_PATH\" ]; then
@@ -70,7 +71,7 @@ jobs:
           path: libsmartdns_ui_x86_64.tar.gz
 
   build_aarch64:
-    runs-on: Ubuntu-22.04
+    runs-on: ubuntu-22.04
     needs: create_release
     steps:
       - name: Checkout code
@@ -81,7 +82,7 @@ jobs:
           docker pull messense/rust-musl-cross:aarch64-musl
           docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:aarch64-musl /bin/bash -c "
             apk add --no-cache qemu-user-static
-            cd /home/rust/src
+            cd /home/rust/src/plugin/smartdns-ui
             cargo build --target aarch64-unknown-linux-musl --release
             LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
             if [ ! -f \"\$LIB_PATH\" ]; then
@@ -118,7 +119,7 @@ jobs:
           path: libsmartdns_ui_aarch64.tar.gz
 
   upload_release:
-    runs-on: Ubuntu-22.04
+    runs-on: ubuntu-22.04
     needs:
       - create_release
       - build_x86_64
@@ -134,7 +135,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ needs.create_release.output.id }}
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
           asset_path: |
             artifacts/libsmartdns_ui_x86_64.tar.gz
             artifacts/libsmartdns_ui_aarch64.tar.gz
