@@ -32,30 +32,34 @@ jobs:
       - name: Build x86_64
         run: |
           docker pull messense/rust-musl-cross:x86_64-musl
-          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:x86_64-musl /bin/bash -c "
-            cd /workspace
+          docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl /bin/bash -c "
+            cd /home/rust/src
             cargo build --target x86_64-unknown-linux-musl --release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
-            LIB_NAME=$(basename $LIB_PATH)
+            if [ ! -f \"\$LIB_PATH\" ]; then
+              echo \"Error: Build failed, \$LIB_PATH not found\"
+              exit 1
+            fi
+            LIB_NAME=\$(basename \"\$LIB_PATH\")
             mkdir -p package/x86_64/lib
-            cp $LIB_PATH package/x86_64/lib/
+            cp \"\$LIB_PATH\" package/x86_64/lib/
             function copy_dependencies() {
-                local lib=$1
-                local dest_dir=$2
+                local lib=\$1
+                local dest_dir=\$2
                 local copied_files=()
                 while read -r line; do
-                    if [[ $line =~ ^\/\w+ ]]; then
-                        dep_path=${line#/}
-                        dep_name=${dep_path##*/}
-                        if ! [[ " ${copied_files[@]} " =~ " $dep_path " ]]; then
-                            cp \"$dep_path\" \"$dest_dir\"
-                            copied_files+=(\"$dep_path\")
-                            copy_dependencies \"$dest_dir/$dep_name\" \"$dest_dir\"
+                    if [[ \$line =~ ^/\\w+ ]]; then
+                        dep_path=\${line#/}
+                        dep_name=\${dep_path##*/}
+                        if ! [[ \" \${copied_files[@]} \" =~ \" \$dep_path \" ]]; then
+                            cp \"\$dep_path\" \"\$dest_dir\"
+                            copied_files+=(\"\$dep_path\")
+                            copy_dependencies \"\$dest_dir/\$dep_name\" \"\$dest_dir\"
                         fi
                     fi
-                done < <(ldd \"$lib\" | grep \" => \" | awk '{print $3}')
+                done < <(ldd \"\$lib\" | grep \" => \" | awk '{print \$3}')
             }
-            copy_dependencies \"package/x86_64/lib/$LIB_NAME\" \"package/x86_64/lib/\"
+            copy_dependencies \"package/x86_64/lib/\$LIB_NAME\" \"package/x86_64/lib/\"
             tar -czf libsmartdns_ui_x86_64.tar.gz package/x86_64
           "
 
@@ -75,31 +79,35 @@ jobs:
       - name: Build aarch64
         run: |
           docker pull messense/rust-musl-cross:aarch64-musl
-          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:aarch64-musl /bin/bash -c "
+          docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:aarch64-musl /bin/bash -c "
             apk add --no-cache qemu-user-static
-            cd /workspace
+            cd /home/rust/src
             cargo build --target aarch64-unknown-linux-musl --release
             LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
-            LIB_NAME=$(basename $LIB_PATH)
+            if [ ! -f \"\$LIB_PATH\" ]; then
+              echo \"Error: Build failed, \$LIB_PATH not found\"
+              exit 1
+            fi
+            LIB_NAME=\$(basename \"\$LIB_PATH\")
             mkdir -p package/aarch64/lib
-            cp $LIB_PATH package/aarch64/lib/
+            cp \"\$LIB_PATH\" package/aarch64/lib/
             function copy_dependencies() {
-                local lib=$1
-                local dest_dir=$2
+                local lib=\$1
+                local dest_dir=\$2
                 local copied_files=()
                 while read -r line; do
-                    if [[ $line =~ ^\/\w+ ]]; then
-                        dep_path=${line#/}
-                        dep_name=${dep_path##*/}
-                        if ! [[ " ${copied_files[@]} " =~ " $dep_path " ]]; then
-                            cp \"$dep_path\" \"$dest_dir\"
-                            copied_files+=(\"$dep_path\")
-                            copy_dependencies \"$dest_dir/$dep_name\" \"$dest_dir\"
+                    if [[ \$line =~ ^/\\w+ ]]; then
+                        dep_path=\${line#/}
+                        dep_name=\${dep_path##*/}
+                        if ! [[ \" \${copied_files[@]} \" =~ \" \$dep_path \" ]]; then
+                            cp \"\$dep_path\" \"\$dest_dir\"
+                            copied_files+=(\"\$dep_path\")
+                            copy_dependencies \"\$dest_dir/\$dep_name\" \"\$dest_dir\"
                         fi
                     fi
-                done < <(qemu-aarch64-static ldd \"$lib\" | grep \" => \" | awk '{print $3}')
+                done < <(qemu-aarch64-static ldd \"\$lib\" | grep \" => \" | awk '{print \$3}')
             }
-            copy_dependencies \"package/aarch64/lib/$LIB_NAME\" \"package/aarch64/lib/\"
+            copy_dependencies \"package/aarch64/lib/\$LIB_NAME\" \"package/aarch64/lib/\"
             tar -czf libsmartdns_ui_aarch64.tar.gz package/aarch64
           "
 
@@ -117,7 +125,7 @@ jobs:
       - build_aarch64
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
