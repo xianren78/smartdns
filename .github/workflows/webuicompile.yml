@@ -5,7 +5,6 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
-
 jobs:
   create_release:
     runs-on: Ubuntu-22.04
@@ -32,8 +31,8 @@ jobs:
 
       - name: Build x86_64
         run: |
-          docker pull messense/rust-musl-cross:x86_64-musl
-          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:x86_64-musl /bin/bash -c "
+          docker pull rustcross/rust-musl-cross:x86_64-musl
+          docker run --rm -v $(pwd):/workspace rustcross/rust-musl-cross:x86_64-musl /bin/bash -c "
             cd /workspace
             cargo build --target x86_64-unknown-linux-musl --release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
@@ -75,21 +74,15 @@ jobs:
 
       - name: Build aarch64
         run: |
-          docker pull messense/rust-musl-cross:aarch64-musl
-          docker run --rm -v $(pwd):/workspace messense/rust-musl-cross:aarch64-musl /bin/bash -c "
-            apk add --no-cache curl
-            curl -sSf https://sh.rustup.rs | sh -s -- -y
-            source $HOME/.cargo/env
-            rustup target add aarch64-unknown-linux-gnus
-            export CC=aarch64-linux-musl-gcc
-            export CXX=aarch64-linux-musl-g++
+          docker pull rustcross/rust-musl-cross:aarch64-musl
+          docker run --rm -v $(pwd):/workspace rustcross/rust-musl-cross:aarch64-musl /bin/bash -c "
+            apk add --no-cache qemu-user-static
             cd /workspace
-            cargo build --target aarch64-unknown-linux-gnus --release
-            LIB_PATH=target/aarch64-unknown-linux-gnus/release/libsmartdns_ui.so
+            cargo build --target aarch64-unknown-linux-musl --release
+            LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
             LIB_NAME=$(basename $LIB_PATH)
             mkdir -p package/aarch64/lib
             cp $LIB_PATH package/aarch64/lib/
-            apk add --no-cache qemu-user-static
             function copy_dependencies() {
                 local lib=$1
                 local dest_dir=$2
@@ -124,7 +117,7 @@ jobs:
       - build_aarch64
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           path: artifacts/
 
