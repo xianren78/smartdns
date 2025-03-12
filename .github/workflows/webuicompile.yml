@@ -52,7 +52,11 @@ jobs:
             /sbin/apk update || { echo 'apk update failed'; exit 1; } &&
             /sbin/apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-dev musl-dev curl gcompat linux-headers &&
             # Install rustup if not present
-            which rustup || { curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0 && source \$HOME/.cargo/env; } &&
+            which rustup || { curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0; } &&
+            ls -la /usr/local/cargo/env || echo '/usr/local/cargo/env not found' &&
+            ls -la /root/.cargo/env || echo '/root/.cargo/env not found' &&
+            source /usr/local/cargo/env || { echo 'Sourcing /usr/local/cargo/env failed'; source \$HOME/.cargo/env || { echo 'Sourcing \$HOME/.cargo/env also failed'; exit 1; }; } &&
+            echo 'PATH after sourcing: \$PATH' &&
             rustup --version || { echo 'rustup installation failed'; exit 1; } &&
             rustup update 1.81.0 &&
             rustup default 1.81.0 &&
@@ -87,7 +91,4 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ needs.get-version.outputs.VERSION }}
-          files: libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz
+          G
