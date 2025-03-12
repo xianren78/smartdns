@@ -46,8 +46,9 @@ jobs:
         run: |
           mkdir -p build/${{ matrix.arch }}
           docker run -i --rm -v ${{ github.workspace }}:/workdir -e CC=${{ env.CC }} -e LIBCLANG_STATIC=1 -e LIBCLANG_PATH=/usr/lib -e CLANG_PATH=/usr/bin/clang -e RUST_BACKTRACE=1 -e PATH=/usr/local/bin:/usr/bin:/bin rust:alpine sh -c "
-            apk update &&
-            apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-dev musl-dev curl gcompat linux-headers &&  # Added clang-dev
+            cat /etc/os-release &&  # Debug: Confirm Alpine OS
+            apk update || { echo 'apk not found'; exit 1; } &&
+            apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-dev musl-dev curl gcompat linux-headers &&
             # Install aarch64 cross-compiler if needed
             if [ '${{ matrix.arch }}' = 'aarch64' ]; then \
               curl -L https://musl.cc/aarch64-linux-musl-cross.tgz -o /tmp/aarch64-cross.tgz && \
