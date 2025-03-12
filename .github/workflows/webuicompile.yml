@@ -34,11 +34,13 @@ jobs:
         run: |
           docker pull messense/rust-musl-cross:x86_64-musl
           docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl /bin/bash -c "
+            apk add --no-cache musl-dev
             cd /home/rust/src/plugin/smartdns-ui
-            cargo build --target x86_64-unknown-linux-musl --release
+            cargo build --target x86_64-unknown-linux-musl --release --features build-release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
             if [ ! -f \"\$LIB_PATH\" ]; then
               echo \"Error: Build failed, \$LIB_PATH not found\"
+              ls -la target/x86_64-unknown-linux-musl/release/
               exit 1
             fi
             LIB_NAME=\$(basename \"\$LIB_PATH\")
@@ -81,12 +83,13 @@ jobs:
         run: |
           docker pull messense/rust-musl-cross:aarch64-musl
           docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:aarch64-musl /bin/bash -c "
-            apk add --no-cache qemu-user-static
+            apk add --no-cache musl-dev qemu-user-static
             cd /home/rust/src/plugin/smartdns-ui
-            cargo build --target aarch64-unknown-linux-musl --release
+            cargo build --target aarch64-unknown-linux-musl --release --features build-release
             LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
             if [ ! -f \"\$LIB_PATH\" ]; then
               echo \"Error: Build failed, \$LIB_PATH not found\"
+              ls -la target/aarch64-unknown-linux-musl/release/
               exit 1
             fi
             LIB_NAME=\$(basename \"\$LIB_PATH\")
