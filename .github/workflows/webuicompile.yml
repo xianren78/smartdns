@@ -5,70 +5,97 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      update-version:
+        description: 'Set to true to update version number'
+        default: 'false'
 
 jobs:
-  build-and-package:
+  get-version:
     runs-on: ubuntu-latest
-
+    outputs:
+      VERSION: ${{ steps.set-version.outputs.VERSION }}
     steps:
-      # 检出代码
+      - uses: actions/checkout@v4
+        with:
+          ref: VERSION_CONTROL  # 假设你有类似的分支
+          fetch-depth: 1
+      - name: Get or Set Version
+        id: set-version
+        run: |
+          if [ -f VERSION ]; then
+            VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          else
+            VERSION="1.0.0"
+            echo "CUR_VERS=$VERSION" > VERSION
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+  build:
+    needs: get-version
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]  # 可扩展到更多架构
+      fail-fast: false
+    runs-on: ubuntu-latest
+    env:
+      TARGET: ${{ matrix.arch == 'x86_64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
+      DOCKER_IMAGE: ${{ matrix.arch == 'x86_64' && 'muslcc/x86_64:x86_64-linux-musl' || 'muslcc/x86_64:aarch64-linux-musl' }}
+    steps:
       - uses: actions/checkout@v4
 
-      # 安装 Rust 工具链
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
-          components: rustfmt  # Optional, for formatting checks
-
-      # 安装 musl-tools 和 QEMU
-      - name: Install Dependencies
+      - name: Build libsmartdns_ui.so in Docker
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools qemu-user-static build-essential pkg-config libssl-dev
+          mkdir -p build/${{ matrix.arch }}
+          docker run -i --rm -v ${{ github.workspace }}:/workdir ${{ env.DOCKER_IMAGE }} sh -c "
+            apk add rust cargo openssl-dev pkgconf perl make &&
+            cd /workdir/plugin/smartdns-ui &&
+            cargo build --release --target ${{ env.TARGET }} &&
+            cp target/${{ env.TARGET }}/release/libsmartdns_ui.so /workdir/build/${{ matrix.arch }}/
+          " || echo "Build failed for ${{ matrix.arch }}, check logs"
 
-      # 为 x86_64 编译 libsmartdns_ui.so
-      - name: Build for x86_64-unknown-linux-musl
-        env:
-          RUSTFLAGS: -C target-feature=+crt-static -C link-args=-rdynamic  # Enable dynamic linking
-        run: |
-          cd plugin/smartdns-ui
-          cargo build --release --target x86_64-unknown-linux-musl
-          mkdir -p x86_64-dist
-          cp target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so x86_64-dist/ || ls -la target/x86_64-unknown-linux-musl/release/
-          ldd target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so || true
-
-      # 为 aarch64 编译 libsmartdns_ui.so
-      - name: Build for aarch64-unknown-linux-musl
-        env:
-          RUSTFLAGS: -C target-feature=+crt-static -C link-args=-rdynamic
-          CC: musl-gcc  # Explicitly use musl-gcc for aarch64
-        run: |
-          cd plugin/smartdns-ui
-          cargo clean  # Avoid architecture conflicts
-          cargo build --release --target aarch64-unknown-linux-musl
-          mkdir -p aarch64-dist
-          cp target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so aarch64-dist/ || ls -la target/aarch64-unknown-linux-musl/release/
-          qemu-aarch64 target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so || true
-
-      # 打包为 tar.gz
       - name: Package Artifacts
         run: |
-          tar -czvf libsmartdns_ui-x86_64-musl.tar.gz -C x86_64-dist .
-          tar -czvf libsmartdns_ui-aarch64-musl.tar.gz -C aarch64-dist .
+          cd build/${{ matrix.arch }}
+          tar -czvf ../../libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz .
+          cd ../..
 
-      # 上传 artifacts，使用 v4
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libsmartdns_ui-so-files
-          path: |
-            libsmartdns_ui-x86_64-musl.tar.gz
-            libsmartdns_ui-aarch64-musl.tar.gz
+          name: libsmartdns_ui-${{ matrix.arch }}-musl
+          path: libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz
           retention-days: 30
 
-      # 可选：使用 QEMU 测试 aarch64 版本
-      - name: Test aarch64 Binary with QEMU
+      - name: Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.get-version.outputs.VERSION }}
+          files: libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz
+
+  update-version:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.update-version == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: VERSION_CONTROL
+          fetch-depth: 1
+      - name: Increment Version
         run: |
-          qemu-aarch64 -L /usr/aarch64-linux-gnu aarch64-dist/libsmartdns_ui.so || true
+          VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          NEW_VERSION=$(echo $VERSION | awk -F. '{$NF+=1; print $1"."$2"."$NF}')
+          sed -i "s/CUR_VERS=.*/CUR_VERS=$NEW_VERSION/" VERSION
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add VERSION
+          git commit -m "Bump version to $NEW_VERSION"
+      - uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: VERSION_CONTROL
