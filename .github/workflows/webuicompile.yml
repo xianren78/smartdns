@@ -17,7 +17,7 @@ jobs:
     outputs:
       VERSION: ${{ steps.set-version.outputs.VERSION }}
     steps:
-      - uses: actions/checkout@v4  # Default branch (master)
+      - uses: actions/checkout@v4
       - name: Get or Set Version
         id: set-version
         run: |
@@ -46,7 +46,11 @@ jobs:
         run: |
           mkdir -p build/${{ matrix.arch }}
           docker run -i --rm -v ${{ github.workspace }}:/workdir ${{ env.DOCKER_IMAGE }} sh -c "
-            apk add rust cargo openssl-dev pkgconf perl make &&
+            apk add --no-cache curl build-base openssl-dev pkgconf perl make &&
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.75.0 &&
+            source \$HOME/.cargo/env &&
+            rustc --version && cargo --version &&  # Verify Rust and Cargo versions
+            echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&  # Debug: Show Cargo.toml
             cd /workdir/plugin/smartdns-ui &&
             cargo build --release --target ${{ env.TARGET }} &&
             cp target/${{ env.TARGET }}/release/libsmartdns_ui.so /workdir/build/${{ matrix.arch }}/
@@ -67,33 +71,17 @@ jobs:
 
       - name: Release
         if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: libsmartdns_ui-${{ matrix.arch }}-musl
+          path: libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz
+          retention-days: 30
+
+      - name: Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: v${{ needs.get-version.outputs.VERSION }}
           files: libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz
-
-  update-version:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.update-version == 'true'
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Increment Version
-        run: |
-          if [ -f VERSION ]; then
-            VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/' || echo "1.0.0")
-          else
-            VERSION="1.0.0"
-          fi
-          NEW_VERSION=$(echo $VERSION | awk -F. '{$NF+=1; print $1"."$2"."$NF}')
-          echo "CUR_VERS=$NEW_VERSION" > VERSION
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add VERSION
-          git commit -m "Bump version to $NEW_VERSION"
-      - uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: master  # Push to master instead of VERSION_CONTROL
