@@ -47,10 +47,12 @@ jobs:
           mkdir -p build/${{ matrix.arch }}
           docker run -i --rm -v ${{ github.workspace }}:/workdir ${{ env.DOCKER_IMAGE }} sh -c "
             apk update &&
-            apk add --no-cache curl build-base openssl-dev pkgconf perl make &&
+            apk add --no-cache curl build-base openssl-dev pkgconf perl make clang &&
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0 &&
             source \$HOME/.cargo/env &&
-            rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl &&  # Add required targets
+            rustup --version || { echo 'rustup not installed'; exit 1; } &&
+            rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl || { echo 'Failed to add targets'; exit 1; } &&
+            rustup target list --installed &&  # Verify installed targets
             rustc --version && cargo --version || { echo 'Rust installation failed'; exit 1; } &&
             echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&
             cd /workdir/plugin/smartdns-ui &&
