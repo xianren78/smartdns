@@ -1,94 +1,107 @@
-name: Build and Package libsmartdns_ui.so for musl
+name: Build and Release libsmartdns_ui
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch:
-    inputs:
-      update-version:
-        description: 'Set to true to update version number'
-        default: 'false'
+    tags:
+      - 'v*'
 
 jobs:
-  get-version:
-    runs-on: ubuntu-latest
+  create_release:
+    runs-on: Ubuntu-22.04
     outputs:
-      VERSION: ${{ steps.set-version.outputs.VERSION }}
+      upload_url: ${{ steps.create_release.output.id }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Get or Set Version
-        id: set-version
-        run: |
-          if [ -f VERSION ]; then
-            VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/' || echo "1.0.0")
-          else
-            VERSION="1.0.0"
-            echo "CUR_VERS=$VERSION" > VERSION
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-
-  build:
-    needs: get-version
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
-      fail-fast: false
-    runs-on: ubuntu-latest
-    env:
-      TARGET: ${{ matrix.arch == 'x86_64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
-      CC: ${{ matrix.arch == 'x86_64' && 'musl-gcc' || 'aarch64-linux-musl-gcc' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build libsmartdns_ui.so in Docker
-        run: |
-          mkdir -p build/${{ matrix.arch }}
-          docker run -i --rm -v ${{ github.workspace }}:/workdir -e CC=${{ env.CC }} -e LIBCLANG_STATIC=1 -e LIBCLANG_PATH=/usr/lib -e CLANG_PATH=/usr/bin/clang -e RUST_BACKTRACE=1 -e PATH=/usr/local/bin:/usr/bin:/bin:/sbin rust:alpine sh -c "
-            cat /etc/os-release &&  # Debug: Confirm Alpine OS
-            echo 'Current PATH: \$PATH' &&
-            ls -la /sbin/apk || echo 'apk binary not found in /sbin' &&
-            /sbin/apk update || { echo 'apk update failed'; exit 1; } &&
-            /sbin/apk add --no-cache build-base openssl-dev pkgconf perl make clang clang-dev musl-dev curl gcompat linux-headers &&
-            # Install rustup if not present
-            which rustup || { curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.81.0; } &&
-            ls -la /usr/local/cargo/env || echo '/usr/local/cargo/env not found' &&
-            ls -la /root/.cargo/env || echo '/root/.cargo/env not found' &&
-            source /usr/local/cargo/env || { echo 'Sourcing /usr/local/cargo/env failed'; source \$HOME/.cargo/env || { echo 'Sourcing \$HOME/.cargo/env also failed'; exit 1; }; } &&
-            echo 'PATH after sourcing: \$PATH' &&
-            rustup --version || { echo 'rustup installation failed'; exit 1; } &&
-            rustup update 1.81.0 &&
-            rustup default 1.81.0 &&
-            rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl &&
-            rustc --version && cargo --version || { echo 'Rust setup failed'; exit 1; } &&
-            echo '=== Cargo.toml ===' && cat /workdir/plugin/smartdns-ui/Cargo.toml &&
-            echo 'CC is set to: \$CC' && which \$CC || echo 'CC not found' &&
-            ls -la /usr/lib/libclang* &&  # Debug: Check libclang files
-            ls -la /usr/bin/musl-gcc || echo 'musl-gcc not found in /usr/bin' &&
-            # Test compiler
-            echo 'int main() { return 0; }' > /tmp/test.c &&
-            \$CC -o /tmp/test /tmp/test.c && echo 'Compiler test succeeded' || { echo 'Compiler test failed'; exit 1; } &&
-            cd /workdir/plugin/smartdns-ui &&
-            cargo build --release --target ${{ env.TARGET }} --verbose &&
-            cp target/${{ env.TARGET }}/release/libsmartdns_ui.so /workdir/build/${{ matrix.arch }}/
-          " || echo "Build failed for ${{ matrix.arch }}, check logs"
-
-      - name: Package Artifacts
-        run: |
-          cd build/${{ matrix.arch }}
-          tar -czvf ../../libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz .
-          cd ../..
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: libsmartdns_ui-${{ matrix.arch }}-musl
-          path: libsmartdns_ui-${{ matrix.arch }}-musl.tar.gz
-          retention-days: 30
-
-      - name: Release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v1
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
         env:
-          G
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true
+          prerelease: false
+
+  build_x86_64:
+    runs-on: Ubuntu-22.04
+    needs: create_release
+    steps:
+      - name: Checkout code
+        uses: actions/check-out@v2
+
+      - name: Build x86_64
+        uses: docker://yourregistry/x86_64_musl
+        with:
+          args: |
+            export CC=x86_64-linux-musl-gcc
+            export CXX=x86_64-linux-musl-g++
+            cargo build --target x86_64-unknown-linux-musl --release -- -L /usr/local/musl/lib
+            LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
+            DEPENDENCIES=$(ldd $LIB_PATH | awk '/=>/ {print $3}' | tr -d '()')
+            mkdir -p package/x86_64
+            cp $LIB_PATH package/x86_64/
+            for dep in $DEPENDENCIES; do
+                cp $dep package/x86_64/
+            done
+            tar -czf libsmartdns_ui_x86_64.tar.gz package/x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: libsmartdns_ui_x86_64.tar.gz
+          path: libsmartdns_ui_x86_64.tar.gz
+
+  build_aarch64:
+    runs-on: Ubuntu-22.04
+    needs: create_release
+    steps:
+      - name: Checkout code
+        uses: actions/check-out@v2
+
+      - name: Build aarch64
+        uses: docker://yourregistry/aarch64_cross_musl
+        with:
+          args: |
+            export CC=aarch64-linux-musl-gcc
+            export CXX=aarch64-linux-musl-g++
+            cargo build --target aarch64-unknown-linux-musl --release -- -L /usr/local/aarch64-mul/lib
+            LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
+            DEPENDENCIES=$(qemu-aarch64-static ldd $LIB_PATH | awk '/=>/ {print $3}' | tr -d '()')
+            mkdir -p package/aarch64
+            cp $LIB_PATH package/aarch64/
+            for dep in $DEPENDENCIES; do
+                cp $dep package/aarch64/
+            done
+            tar -czf libsmartdns_ui_aarch64.tar.gz package/aarch64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: libsmartdns_ui_aarch64.tar.gz
+          path: libsmartdns_ui_aarch64.tar.gz
+
+  upload_release:
+    runs-on: Ubuntu-22.04
+    needs:
+      - create_release
+      - build_x86_64
+      - build_aarch64
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v2
+        with:
+          path: artifacts/
+
+      - name: Upload assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.output.id }}
+          asset_path: |
+            artifacts/libsmartdns_ui_x86_64.tar.gz
+            artifacts/libsmartdns_ui_aarch64.tar.gz
+          asset_name: |
+            libsmartdns_ui_x86_64.tar.gz
+            libsmartdns_ui_aarch64.tar.gz
+          asset_content_type: application/gzip
