@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ master ]
 
-
 jobs:
   create_release:
     runs-on: Ubuntu-22.04
@@ -32,20 +31,34 @@ jobs:
         uses: actions/check-out@v2
 
       - name: Build x86_64
-        uses: docker://yourregistry/x86_64_musl
-        with:
-          args: |
-            export CC=x86_64-linux-musl-gcc
-            export CXX=x86_64-linux-musl-g++
-            cargo build --target x86_64-unknown-linux-musl --release -- -L /usr/local/musl/lib
+        run: |
+          docker pull jess/alpine-rust
+          docker run --rm -v $(pwd):/workspace jess/alpine-rust /bin/bash -c "
+            cd /workspace
+            cargo build --target x86_64-unknown-linux-musl --release
             LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
-            DEPENDENCIES=$(ldd $LIB_PATH | awk '/=>/ {print $3}' | tr -d '()')
-            mkdir -p package/x86_64
-            cp $LIB_PATH package/x86_64/
-            for dep in $DEPENDENCIES; do
-                cp $dep package/x86_64/
-            done
+            LIB_NAME=$(basename $LIB_PATH)
+            mkdir -p package/x86_64/lib
+            cp $LIB_PATH package/x86_64/lib/
+            function copy_dependencies() {
+                local lib=$1
+                local dest_dir=$2
+                local copied_files=()
+                while read -r line; do
+                    if [[ $line =~ ^\/\w+ ]]; then
+                        dep_path=${line#/}
+                        dep_name=${dep_path##*/}
+                        if ! [[ " ${copied_files[@]} " =~ " $dep_path " ]]; then
+                            cp \"$dep_path\" \"$dest_dir\"
+                            copied_files+=(\"$dep_path\")
+                            copy_dependencies \"$dest_dir/$dep_name\" \"$dest_dir\"
+                        fi
+                    fi
+                done < <(ldd \"$lib\" | grep \" => \" | awk '{print $3}')
+            }
+            copy_dependencies \"package/x86_64/lib/$LIB_NAME\" \"package/x86_64/lib/\"
             tar -czf libsmartdns_ui_x86_64.tar.gz package/x86_64
+          "
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
@@ -61,20 +74,41 @@ jobs:
         uses: actions/check-out@v2
 
       - name: Build aarch64
-        uses: docker://yourregistry/aarch64_cross_musl
-        with:
-          args: |
+        run: |
+          docker pull dlr-e/musl-cross-aarch64
+          docker run --rm -v $(pwd):/workspace dlr-e/musl-cross-aarch64 /bin/bash -c "
+            apk add --no-cache curl
+            curl -sSf https://sh.rustup.rs | sh -s -- -y
+            source $HOME/.cargo/env
+            rustup target add aarch64-unknown-linux-gnus
             export CC=aarch64-linux-musl-gcc
             export CXX=aarch64-linux-musl-g++
-            cargo build --target aarch64-unknown-linux-musl --release -- -L /usr/local/aarch64-mul/lib
-            LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
-            DEPENDENCIES=$(qemu-aarch64-static ldd $LIB_PATH | awk '/=>/ {print $3}' | tr -d '()')
-            mkdir -p package/aarch64
-            cp $LIB_PATH package/aarch64/
-            for dep in $DEPENDENCIES; do
-                cp $dep package/aarch64/
-            done
+            cd /workspace
+            cargo build --target aarch64-unknown-linux-gnus --release
+            LIB_PATH=target/aarch64-unknown-linux-gnus/release/libsmartdns_ui.so
+            LIB_NAME=$(basename $LIB_PATH)
+            mkdir -p package/aarch64/lib
+            cp $LIB_PATH package/aarch64/lib/
+            apk add --no-cache qemu-user-static
+            function copy_dependencies() {
+                local lib=$1
+                local dest_dir=$2
+                local copied_files=()
+                while read -r line; do
+                    if [[ $line =~ ^\/\w+ ]]; then
+                        dep_path=${line#/}
+                        dep_name=${dep_path##*/}
+                        if ! [[ " ${copied_files[@]} " =~ " $dep_path " ]]; then
+                            cp \"$dep_path\" \"$dest_dir\"
+                            copied_files+=(\"$dep_path\")
+                            copy_dependencies \"$dest_dir/$dep_name\" \"$dest_dir\"
+                        fi
+                    fi
+                done < <(qemu-aarch64-static ldd \"$lib\" | grep \" => \" | awk '{print $3}')
+            }
+            copy_dependencies \"package/aarch64/lib/$LIB_NAME\" \"package/aarch64/lib/\"
             tar -czf libsmartdns_ui_aarch64.tar.gz package/aarch64
+          "
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
