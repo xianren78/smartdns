@@ -5,7 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
     inputs:
       update-version:
         description: 'Set to true to update version number'
@@ -17,15 +17,12 @@ jobs:
     outputs:
       VERSION: ${{ steps.set-version.outputs.VERSION }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: VERSION_CONTROL  # 假设你有类似的分支
-          fetch-depth: 1
+      - uses: actions/checkout@v4  # Default branch (master)
       - name: Get or Set Version
         id: set-version
         run: |
           if [ -f VERSION ]; then
-            VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+            VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/' || echo "1.0.0")
           else
             VERSION="1.0.0"
             echo "CUR_VERS=$VERSION" > VERSION
@@ -36,7 +33,7 @@ jobs:
     needs: get-version
     strategy:
       matrix:
-        arch: [x86_64, aarch64]  # 可扩展到更多架构
+        arch: [x86_64, aarch64]
       fail-fast: false
     runs-on: ubuntu-latest
     env:
@@ -83,14 +80,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: VERSION_CONTROL
-          fetch-depth: 1
       - name: Increment Version
         run: |
-          VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          if [ -f VERSION ]; then
+            VERSION=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/' || echo "1.0.0")
+          else
+            VERSION="1.0.0"
+          fi
           NEW_VERSION=$(echo $VERSION | awk -F. '{$NF+=1; print $1"."$2"."$NF}')
-          sed -i "s/CUR_VERS=.*/CUR_VERS=$NEW_VERSION/" VERSION
+          echo "CUR_VERS=$NEW_VERSION" > VERSION
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add VERSION
@@ -98,4 +96,4 @@ jobs:
       - uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: VERSION_CONTROL
+          branch: master  # Push to master instead of VERSION_CONTROL
