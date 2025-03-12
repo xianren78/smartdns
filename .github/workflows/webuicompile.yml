@@ -61,7 +61,7 @@ jobs:
           "
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: libsmartdns_ui_x86_64.tar.gz
           path: libsmartdns_ui_x86_64.tar.gz
@@ -111,7 +111,7 @@ jobs:
           "
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: libsmartdns_ui_aarch64.tar.gz
           path: libsmartdns_ui_aarch64.tar.gz
@@ -124,7 +124,7 @@ jobs:
       - build_aarch64
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
