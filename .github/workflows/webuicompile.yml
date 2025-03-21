@@ -53,9 +53,10 @@ jobs:
             exit 1
           fi
           echo "Both files present, creating TAR..."
-          tar -cvf ../smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.tar libsmartdns_ui.so libgcc_s.so.1
+          tar -cvf ../smartdns-libs-${{ matrix.platform }}-{{ steps.get-date.outputs.creation_date }}.tar libsmartdns_ui.so libgcc_s.so.1
           echo "TAR created successfully"
-      
+          ls -l ..  # Debug: List parent directory contents
+          
       # Create platform-specific release
       - name: Create GitHub Release
         if: success()
