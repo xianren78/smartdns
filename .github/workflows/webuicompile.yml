@@ -1,4 +1,4 @@
-name: Extract and Release SmartDNS UI Libraries as TAR
+name: Extract and Release SmartDNS UI Libraries
 
 on:
   workflow_dispatch:
@@ -27,39 +27,19 @@ jobs:
           CREATION_DATE=$(docker inspect pikuzheng/smartdns:ui | grep Created | head -1 | sed 's/.*"Created": "\([^T]*\).*/\1/' | tr -d '-')
           echo "creation_date=$CREATION_DATE" >> $GITHUB_OUTPUT
       
-      # Extract files from the pulled image with detailed debugging
+      # Extract files from the pulled image
       - name: Extract Files from Image
         run: |
           mkdir -p release-files-${{ matrix.platform }}
           docker create --name temp-container pikuzheng/smartdns:ui
-          echo "Listing container contents at /usr/lib:"
-          docker run --rm pikuzheng/smartdns:ui ls -l /usr/lib || echo "Failed to list /usr/lib"
           docker cp temp-container:/usr/lib/libsmartdns_ui.so release-files-${{ matrix.platform }}/ || echo "Failed to copy libsmartdns_ui.so"
           docker cp temp-container:/usr/lib/libgcc_s.so.1 release-files-${{ matrix.platform }}/ || echo "Failed to copy libgcc_s.so.1"
           docker rm temp-container
           echo "Files extracted to release-files-${{ matrix.platform }}:"
-          ls -l release-files-${{ matrix.platform }} || echo "No files found in release-files-${{ matrix.platform }}"
+          ls -l release-files-${{ matrix.platform }} || echo "No files found"
       
-      # Compress files into a TAR with strict validation
-      - name: Create TAR Archive
-        run: |
-          cd release-files-${{ matrix.platform }}
-          echo "Checking files in $(pwd):"
-          ls -l || echo "Directory is empty"
-          if [ ! -f "libsmartdns_ui.so" ] || [ ! -f "libgcc_s.so.1" ]; then
-            echo "Error: One or both files (libsmartdns_ui.so, libgcc_s.so.1) are missing:"
-            [ ! -f "libsmartdns_ui.so" ] && echo "libsmartdns_ui.so is missing"
-            [ ! -f "libgcc_s.so.1" ] && echo "libgcc_s.so.1 is missing"
-            exit 1
-          fi
-          echo "Both files present, creating TAR..."
-          tar -cvf ../smartdns-libs-${{ matrix.platform }}-{{ steps.get-date.outputs.creation_date }}.tar libsmartdns_ui.so libgcc_s.so.1
-          echo "TAR created successfully"
-          ls -l ..  # Debug: List parent directory contents
-          
       # Create platform-specific release
       - name: Create GitHub Release
-        if: success()
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.get-date.outputs.creation_date }}-${{ matrix.platform }}
@@ -72,6 +52,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.tar
+            release-files-${{ matrix.platform }}/libsmartdns_ui.so
+            release-files-${{ matrix.platform }}/libgcc_s.so.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
