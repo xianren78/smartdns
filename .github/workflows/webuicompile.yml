@@ -1,4 +1,4 @@
-name: Extract and Release SmartDNS UI Libraries
+name: Extract and Release SmartDNS UI Libraries as ZIP
 
 on:
   workflow_dispatch:
@@ -20,6 +20,14 @@ jobs:
         run: |
           docker pull pikuzheng/smartdns:ui --platform ${{ matrix.platform }}
       
+      # Get image creation date
+      - name: Get Image Creation Date
+        id: get-date
+        run: |
+          # Extract creation date from image metadata and format as YYYYMMDD
+          CREATION_DATE=$(docker inspect pikuzheng/smartdns:ui | grep Created | head -1 | sed 's/.*"Created": "\([^T]*\).*/\1/' | tr -d '-')
+          echo "creation_date=$CREATION_DATE" >> $GITHUB_OUTPUT
+      
       # Extract files from the pulled image
       - name: Extract Files from Image
         run: |
@@ -29,33 +37,26 @@ jobs:
           docker cp temp-container:/usr/lib/libgcc_s.so.1 release-files-${{ matrix.platform }}/
           docker rm temp-container
       
-      # Get version (assuming the version is still in your repo, adjust if needed)
-      - name: Get Version
-        id: get-version
+      # Compress files into a ZIP
+      - name: Create ZIP Archive
         run: |
-          if [ -f "version_control/VERSION" ]; then
-            pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
-            cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
-            echo "version=${pre_version}${cur_version}" >> $GITHUB_OUTPUT
-          else
-            echo "version=latest" >> $GITHUB_OUTPUT
-          fi
+          cd release-files-${{ matrix.platform }}
+          zip ../smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.zip libsmartdns_ui.so libgcc_s.so.1
       
       # Create platform-specific release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.get-version.outputs.version }}-${{ matrix.platform }}
-          name: Release ${{ steps.get-version.outputs.version }} (${{ matrix.platform }})
+          tag_name: v${{ steps.get-date.outputs.creation_date }}-${{ matrix.platform }}
+          name: Release ${{ steps.get-date.outputs.creation_date }} (${{ matrix.platform }})
           body: |
             Automated release for ${{ matrix.platform }} containing:
             - libsmartdns_ui.so
             - libgcc_s.so.1
-            Extracted from pikuzheng/smartdns:ui Docker image
+            Extracted from pikuzheng/smartdns:ui Docker image (Created: ${{ steps.get-date.outputs.creation_date }})
           draft: false
           prerelease: false
           files: |
-            release-files-${{ matrix.platform }}/libsmartdns_ui.so
-            release-files-${{ matrix.platform }}/libgcc_s.so.1
+            smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
