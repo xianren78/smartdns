@@ -1,0 +1,31 @@
+FROM --platform=$TARGETPLATFORM rust:1.80-alpine3.21 as smartdns-builder
+LABEL previous-stage=smartdns
+COPY . /smartdns/
+ARG TARGETPLATFORM
+RUN apk add --no-cache openssl-dev openssl-libs-static cargo ncurses-static zlib-static gcc musl-dev && \
+    case "$TARGETPLATFORM" in \
+      "linux/amd64") echo "x86_64-unknown-linux-musl" > /rust_target ;; \
+      "linux/arm64") echo "aarch64-unknown-linux-musl" > /rust_target && apk add gcc-aarch64-linux-musl ;; \
+      "linux/arm/v7") echo "armv7-unknown-linux-musleabihf" > /rust_target && apk add gcc-armv7l-linux-musl ;; \
+      "linux/arm/v6") echo "arm-unknown-linux-musleabi" > /rust_target && apk add gcc-arm-linux-musl ;; \
+      *) echo "unsupported platform" && exit 1 ;; \
+    esac && \
+    chmod -R 0755 /smartdns && \
+    cd /smartdns && \
+    LDFLAGS='-Wl,-rpath,./:./lib' make all -C ./ && \
+    strip /smartdns/src/smartdns && \
+    cd /smartdns/plugin/smartdns-ui && \
+    LIBCLANG_STATIC_PATH=/usr/local/lib \
+    LLVM_CONFIG_PATH=/root/llvm_config.sh \
+    RUSTFLAGS='-C link-arg=-Wl,-rpath,./ -C target-feature=-crt-static' \
+    cargo build --release --target=$(cat /rust_target)
+
+FROM --platform=$TARGETPLATFORM alpine:3.21
+ENV TZ="Asia/Shanghai"
+COPY --from=smartdns-builder /smartdns/src/smartdns /usr/sbin
+COPY --from=smartdns-builder /smartdns/plugin/smartdns-ui/target/*/release/libsmartdns_ui.so /usr/lib
+COPY --from=smartdns-builder /usr/lib/libgcc_s.so.1 /usr/lib
+EXPOSE 53/udp 53/tcp
+VOLUME "/etc/smartdns/"
+HEALTHCHECK --interval=5m CMD test `nslookup dns.pub 127.0.0.1 |grep answer |wc -l` -gt 0
+CMD ["/usr/sbin/smartdns", "-f", "-x", "-p -"]
