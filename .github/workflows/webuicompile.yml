@@ -1,154 +1,69 @@
-name: Build and Release libsmartdns_ui
+name: Release SmartDNS UI Libraries Multi-Arch
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches:
+      - master
 
 jobs:
-  create_release:
-    runs-on: ubuntu-22.04
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
     steps:
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      
+      # Setup multi-arch building
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-          draft: true
+          platforms: ${{ matrix.platform }}
+      
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      # Build for specific platform
+      - name: Build Docker Image
+        run: |
+          docker buildx build --platform ${{ matrix.platform }} -t smartdns-builder-${{ matrix.platform }} -f Dockerfile .
+      
+      # Extract files from built image
+      - name: Extract Files from Image
+        run: |
+          mkdir -p release-files-${{ matrix.platform }}
+          docker create --name temp-container smartdns-builder-${{ matrix.platform }}
+          docker cp temp-container:/smartdns/plugin/smartdns-ui/target/release/libsmartdns_ui.so release-files-${{ matrix.platform }}/
+          docker cp temp-container:/usr/lib/libgcc_s.so.1 release-files-${{ matrix.platform }}/
+          docker rm temp-container
+      
+      # Get version
+      - name: Get Version
+        id: get-version
+        run: |
+          if [ -f "version_control/VERSION" ]; then
+            pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+            cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+            echo "version=${pre_version}${cur_version}" >> $GITHUB_OUTPUT
+          else
+            echo "version=latest" >> $GITHUB_OUTPUT
+          fi
+      
+      # Create platform-specific release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get-version.outputs.version }}-${{ matrix.platform }}
+          name: Release ${{ steps.get-version.outputs.version }} (${{ matrix.platform }})
+          body: |
+            Automated release for ${{ matrix.platform }} containing:
+            - libsmartdns_ui.so
+            - libgcc_s.so.1
+          draft: false
           prerelease: false
-
-  build_x86_64:
-    runs-on: ubuntu-22.04
-    needs: create_release
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build x86_64
-        env:
-          RUSTFLAGS: "-C linker=x86_64-linux-musl-gcc -C link-args=-shared"
-        run: |
-          docker pull messense/rust-musl-cross:x86_64-musl
-          docker run --rm -v $(pwd):/home/rust/src -e RUSTFLAGS="$RUSTFLAGS" messense/rust-musl-cross:x86_64-musl /bin/bash -c "
-            apk add --no-cache musl-dev
-            cd /home/rust/src/plugin/smartdns-ui
-            cargo build --target x86_64-unknown-linux-musl --release --features build-release
-            LIB_PATH=target/x86_64-unknown-linux-musl/release/libsmartdns_ui.so
-            if [ ! -f \"\$LIB_PATH\" ]; then
-              echo \"Error: Build failed, \$LIB_PATH not found\"
-              ls -la target/x86_64-unknown-linux-musl/release/
-              exit 1
-            fi
-            LIB_NAME=\$(basename \"\$LIB_PATH\")
-            mkdir -p package/x86_64/lib
-            cp \"\$LIB_PATH\" package/x86_64/lib/
-            function copy_dependencies() {
-                local lib=\$1
-                local dest_dir=\$2
-                local copied_files=()
-                while read -r line; do
-                    if [[ \$line =~ ^/\\w+ ]]; then
-                        dep_path=\${line#/}
-                        dep_name=\${dep_path##*/}
-                        if ! [[ \" \${copied_files[@]} \" =~ \" \$dep_path \" ]]; then
-                            cp \"\$dep_path\" \"\$dest_dir\"
-                            copied_files+=(\"\$dep_path\")
-                            copy_dependencies \"\$dest_dir/\$dep_name\" \"\$dest_dir\"
-                        fi
-                    fi
-                done < <(ldd \"\$lib\" | grep \" => \" | awk '{print \$3}')
-            }
-            copy_dependencies \"package/x86_64/lib/\$LIB_NAME\" \"package/x86_64/lib/\"
-            tar -czf libsmartdns_ui_x86_64.tar.gz package/x86_64
-          "
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libsmartdns_ui_x86_64.tar.gz
-          path: libsmartdns_ui_x86_64.tar.gz
-
-  build_aarch64:
-    runs-on: ubuntu-22.04
-    needs: create_release
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build aarch64
-        env:
-          RUSTFLAGS: "-C linker=aarch64-linux-musl-gcc -C link-args=-shared"
-          BINDGEN_EXTRA_CLANG_ARGS: "--target=aarch64-unknown-linux-musl -I/usr/include/aarch64-linux-musl"
-          LIBCLANG_PATH: "/usr/lib/libclang.so"
-        run: |
-          docker pull messense/rust-musl-cross:aarch64-musl
-          docker run --rm -v $(pwd):/home/rust/src -e RUSTFLAGS="$RUSTFLAGS" -e BINDGEN_EXTRA_CLANG_ARGS="$BINDGEN_EXTRA_CLANG_ARGS" -e LIBCLANG_PATH="$LIBCLANG_PATH" messense/rust-musl-cross:aarch64-musl /bin/bash -c "
-            apk add --no-cache musl-dev clang clang-dev qemu-user-static
-            cd /home/rust/src/plugin/smartdns-ui
-            cargo build --target aarch64-unknown-linux-musl --release --features build-release
-            LIB_PATH=target/aarch64-unknown-linux-musl/release/libsmartdns_ui.so
-            if [ ! -f \"\$LIB_PATH\" ]; then
-              echo \"Error: Build failed, \$LIB_PATH not found\"
-              ls -la target/aarch64-unknown-linux-musl/release/
-              exit 1
-            fi
-            LIB_NAME=\$(basename \"\$LIB_PATH\")
-            mkdir -p package/aarch64/lib
-            cp \"\$LIB_PATH\" package/aarch64/lib/
-            function copy_dependencies() {
-                local lib=\$1
-                local dest_dir=\$2
-                local copied_files=()
-                while read -r line; do
-                    if [[ \$line =~ ^/\\w+ ]]; then
-                        dep_path=\${line#/}
-                        dep_name=\${dep_path##*/}
-                        if ! [[ \" \${copied_files[@]} \" =~ \" \$dep_path \" ]]; then
-                            cp \"\$dep_path\" \"\$dest_dir\"
-                            copied_files+=(\"\$dep_path\")
-                            copy_dependencies \"\$dest_dir/\$dep_name\" \"\$dest_dir\"
-                        fi
-                    fi
-                done < <(qemu-aarch64-static ldd \"\$lib\" | grep \" => \" | awk '{print \$3}')
-            }
-            copy_dependencies \"package/aarch64/lib/\$LIB_NAME\" \"package/aarch64/lib/\"
-            tar -czf libsmartdns_ui_aarch64.tar.gz package/aarch64
-          "
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libsmartdns_ui_aarch64.tar.gz
-          path: libsmartdns_ui_aarch64.tar.gz
-
-  upload_release:
-    runs-on: ubuntu-22.04
-    needs:
-      - create_release
-      - build_x86_64
-      - build_aarch64
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-
-      - name: Upload assets
-        uses: actions/upload-release-asset@v1
+          files: |
+            release-files-${{ matrix.platform }}/libsmartdns_ui.so
+            release-files-${{ matrix.platform }}/libgcc_s.so.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: |
-            artifacts/libsmartdns_ui_x86_64.tar.gz
-            artifacts/libsmartdns_ui_aarch64.tar.gz
-          asset_name: |
-            libsmartdns_ui_x86_64.tar.gz
-            libsmartdns_ui_aarch64.tar.gz
-          asset_content_type: application/gzip
