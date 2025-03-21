@@ -1,4 +1,4 @@
-name: Extract and Release SmartDNS UI Libraries as ZIP
+name: Extract and Release SmartDNS UI Libraries as TAR
 
 on:
   workflow_dispatch:
@@ -40,8 +40,8 @@ jobs:
           echo "Files extracted to release-files-${{ matrix.platform }}:"
           ls -l release-files-${{ matrix.platform }} || echo "No files found in release-files-${{ matrix.platform }}"
       
-      # Compress files into a ZIP with strict validation
-      - name: Create ZIP Archive
+      # Compress files into a TAR with strict validation
+      - name: Create TAR Archive
         run: |
           cd release-files-${{ matrix.platform }}
           echo "Checking files in $(pwd):"
@@ -52,9 +52,9 @@ jobs:
             [ ! -f "libgcc_s.so.1" ] && echo "libgcc_s.so.1 is missing"
             exit 1
           fi
-          echo "Both files present, creating ZIP..."
-          zip ../smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.zip libsmartdns_ui.so libgcc_s.so.1
-          echo "ZIP created successfully"
+          echo "Both files present, creating TAR..."
+          tar -cvf ../smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.tar libsmartdns_ui.so libgcc_s.so.1
+          echo "TAR created successfully"
       
       # Create platform-specific release
       - name: Create GitHub Release
@@ -71,6 +71,6 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.zip
+            smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.tar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
