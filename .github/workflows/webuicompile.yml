@@ -24,27 +24,36 @@ jobs:
       - name: Get Image Creation Date
         id: get-date
         run: |
-          # Extract creation date from image metadata and format as YYYYMMDD
           CREATION_DATE=$(docker inspect pikuzheng/smartdns:ui | grep Created | head -1 | sed 's/.*"Created": "\([^T]*\).*/\1/' | tr -d '-')
           echo "creation_date=$CREATION_DATE" >> $GITHUB_OUTPUT
       
-      # Extract files from the pulled image
+      # Extract files from the pulled image with debugging
       - name: Extract Files from Image
         run: |
           mkdir -p release-files-${{ matrix.platform }}
           docker create --name temp-container pikuzheng/smartdns:ui
-          docker cp temp-container:/usr/lib/libsmartdns_ui.so release-files-${{ matrix.platform }}/
-          docker cp temp-container:/usr/lib/libgcc_s.so.1 release-files-${{ matrix.platform }}/
+          echo "Listing container contents at /usr/lib:"
+          docker run --rm pikuzheng/smartdns:ui ls -l /usr/lib || echo "Failed to list /usr/lib"
+          docker cp temp-container:/usr/lib/libsmartdns_ui.so release-files-${{ matrix.platform }}/ || echo "libsmartdns_ui.so not found"
+          docker cp temp-container:/usr/lib/libgcc_s.so.1 release-files-${{ matrix.platform }}/ || echo "libgcc_s.so.1 not found"
           docker rm temp-container
+          echo "Files in release-files-${{ matrix.platform }}:"
+          ls -l release-files-${{ matrix.platform }} || echo "Directory is empty"
       
-      # Compress files into a ZIP
+      # Compress files into a ZIP with validation
       - name: Create ZIP Archive
         run: |
           cd release-files-${{ matrix.platform }}
-          zip ../smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.zip libsmartdns_ui.so libgcc_s.so.1
+          if [ -f "libsmartdns_ui.so" ] && [ -f "libgcc_s.so.1" ]; then
+            zip ../smartdns-libs-${{ matrix.platform }}-${{ steps.get-date.outputs.creation_date }}.zip libsmartdns_ui.so libgcc_s.so.1
+          else
+            echo "Error: One or both files (libsmartdns_ui.so, libgcc_s.so.1) are missing. Skipping ZIP creation."
+            exit 1
+          fi
       
-      # Create platform-specific release
+      # Create platform-specific release (only if ZIP exists)
       - name: Create GitHub Release
+        if: success()  # Only run if previous steps succeeded
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.get-date.outputs.creation_date }}-${{ matrix.platform }}
