@@ -1,0 +1,83 @@
+name: Build and Release smartdns-ui
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  get-version:
+    name: Get latest version number
+    runs-on: ubuntu-latest
+    outputs:
+      CUR_VERSION: ${{ steps.get-version.outputs.CUR_VERSION }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: master
+          fetch-depth: 1
+          path: version_control
+      - name: Get version
+        id: get-version
+        run: |
+          pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+          cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          echo "CUR_VERSION=$pre_version$cur_version" >> $GITHUB_OUTPUT
+
+  build-ui:
+    name: Build smartdns-ui
+    needs: get-version
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+      fail-fast: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build libsmartdns_ui.so in Docker
+        run: |
+          echo "Building for ${{ matrix.arch }}..."
+          docker run --rm \
+            -v ${{ github.workspace }}:/usr/src/smartdns \
+            -w /usr/src/smartdns/plugin/smartdns-ui \
+            messense/rust-musl-cross:${{ matrix.arch }}-musl \
+            sh -c "export RUSTFLAGS='-C link-arg=-Wl,-rpath,./ -C target-feature=-crt-static -C link-dead-code=no' && \
+                   cargo build --release --target=${{ matrix.arch }}-unknown-linux-musl --verbose && \
+                   ls -la target/${{ matrix.arch }}-unknown-linux-musl/release/ && \
+                   musl-strip --strip-unneeded target/${{ matrix.arch }}-unknown-linux-musl/release/libsmartdns_ui.so || echo 'Warning: musl-strip failed, proceeding without stripping' && \
+                   cp target/${{ matrix.arch }}-unknown-linux-musl/release/libsmartdns_ui.so libsmartdns_ui-${{ matrix.arch }}.so || \
+                   (echo 'Error: libsmartdns_ui.so not generated' && ls -la target/${{ matrix.arch }}-unknown-linux-musl/release/ && exit 1)"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libsmartdns_ui-${{ matrix.arch }}
+          path: ${{ github.workspace }}/plugin/smartdns-ui/libsmartdns_ui-${{ matrix.arch }}.so
+          retention-days: 90
+
+  release:
+    name: Create GitHub Release
+    needs: build-ui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          cp artifacts/libsmartdns_ui-x86_64/libsmartdns_ui-x86_64.so release-assets/
+          cp artifacts/libsmartdns_ui-aarch64/libsmartdns_ui-aarch64.so release-assets/
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.get-version.outputs.CUR_VERSION }}
+          name: smartdns-ui v${{ needs.get-version.outputs.CUR_VERSION }}
+          body: "Release of libsmartdns_ui.so for x86_64 and aarch64 architectures."
+          files: |
+            release-assets/libsmartdns_ui-x86_64.so
+            release-assets/libsmartdns_ui-aarch64.so
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

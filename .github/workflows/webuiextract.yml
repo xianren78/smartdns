@@ -1,0 +1,58 @@
+name: Extract SmartDNS UI Libraries
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  extract-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Pull the pre-built image from Docker Hub
+      - name: Pull Docker Image
+        run: |
+          docker pull pikuzheng/smartdns:ui --platform ${{ matrix.platform }}
+      
+      # Get image creation date
+      - name: Get Image Creation Date
+        id: get-date
+        run: |
+          CREATION_DATE=$(docker inspect pikuzheng/smartdns:ui | grep Created | head -1 | sed 's/.*"Created": "\([^T]*\).*/\1/' | tr -d '-')
+          echo "creation_date=$CREATION_DATE" >> $GITHUB_OUTPUT
+      
+      # Extract files from the pulled image
+      - name: Extract Files from Image
+        run: |
+          mkdir -p release-files-${{ matrix.platform }}
+          docker create --name temp-container pikuzheng/smartdns:ui
+          docker cp temp-container:/usr/lib/libsmartdns_ui.so release-files-${{ matrix.platform }}/ || echo "Failed to copy libsmartdns_ui.so"
+          docker cp temp-container:/usr/lib/libgcc_s.so.1 release-files-${{ matrix.platform }}/ || echo "Failed to copy libgcc_s.so.1"
+          docker rm temp-container
+          echo "Files extracted to release-files-${{ matrix.platform }}:"
+          ls -l release-files-${{ matrix.platform }} || echo "No files found"
+      
+      # Create platform-specific release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get-date.outputs.creation_date }}-${{ matrix.platform }}
+          name: Release ${{ steps.get-date.outputs.creation_date }} (${{ matrix.platform }})
+          body: |
+            Automated release for ${{ matrix.platform }} containing:
+            - libsmartdns_ui.so
+            - libgcc_s.so.1
+            Extracted from pikuzheng/smartdns:ui Docker image (Created: ${{ steps.get-date.outputs.creation_date }})
+          draft: false
+          prerelease: false
+          files: |
+            release-files-${{ matrix.platform }}/libsmartdns_ui.so
+            release-files-${{ matrix.platform }}/libgcc_s.so.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
