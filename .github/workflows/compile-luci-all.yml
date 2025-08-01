@@ -43,10 +43,6 @@ jobs:
             target: armsr
             subtarget: armv8
             package_arch: aarch64
-          - arch: armv7
-            target: armsr
-            subtarget: armv7
-            package_arch: armv7
       fail-fast: false
     runs-on: ubuntu-latest
     env:
@@ -74,6 +70,7 @@ jobs:
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
+          export TERM=xterm
           cd ${{ github.workspace }}/openwrt-sdk
           sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/smartdns/Makefile
           make package/smartdns/compile V=s
@@ -124,6 +121,7 @@ jobs:
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
+          export TERM=xterm
           cd ${{ github.workspace }}/openwrt-sdk
           sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/luci_app_smartdns/Makefile
           make package/luci-app-smartdns/compile V=s
