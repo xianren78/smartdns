@@ -47,14 +47,15 @@ jobs:
       - name: Set up OpenWrt SDK
         run: |
           sudo apt update
-          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev
+          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
           mkdir -p ${{ github.workspace }}/openwrt-sdk
-          curl -sSL https://downloads.openwrt.org/releases/24.10.0-rc1/targets/x86/64/openwrt-sdk-24.10.0-rc1-x86-64_gcc-14.2.0_musl.Linux-x86_64.tar.xz -o sdk.tar.xz
-          tar -Jxf sdk.tar.xz -C openwrt-sdk --strip-components=1
+          curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/x86/64/openwrt-sdk-24.10.2-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
+          file sdk.tar.zst | grep "Zstandard compressed data" || { echo "Invalid tar.zst file"; exit 1; }
+          tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
       - name: Prepare feeds
         run: |
           cd ${{ github.workspace }}/openwrt-sdk
-          echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
+          echo "src-git smartdns https://github.com/lwb1978/openwrt/openwrt-smartdns.git" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
       - name: Configure and build smartdns
@@ -94,10 +95,11 @@ jobs:
       - name: Set up OpenWrt SDK
         run: |
           sudo apt update
-          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev
+          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
           mkdir -p ${{ github.workspace }}/openwrt-sdk
-          curl -sSL https://downloads.openwrt.org/releases/24.10.0-rc1/targets/x86/64/openwrt-sdk-24.10.0-rc1-x86-64_gcc-14.2.0_musl.Linux-x86_64.tar.xz -o sdk.tar.xz
-          tar -Jxf sdk.tar.xz -C openwrt-sdk --strip-components=1
+          curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/x86/64/openwrt-sdk-24.10.2-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
+          file sdk.tar.zst | grep "Zstandard compressed data" || { echo "Invalid tar.zst file"; exit 1; }
+          tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
       - name: Prepare feeds
         run: |
           cd ${{ github.workspace }}/openwrt-sdk
