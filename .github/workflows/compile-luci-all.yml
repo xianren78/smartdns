@@ -36,27 +36,49 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            sdk_tag: x86-64-24.10.2
+            target: x86
+            subtarget: 64
             package_arch: x86_64
           - arch: aarch64
-            sdk_tag: armvirt-64-24.10.2
+            target: armvirt
+            subtarget: 64
             package_arch: aarch64_cortex-a53
           - arch: armv7
-            sdk_tag: armvirt-32-24.10.2
+            target: armvirt
+            subtarget: 32
             package_arch: arm_cortex-a9_vfpv3-d16
       fail-fast: false
     runs-on: ubuntu-latest
     env:
       ARCH: ${{ matrix.arch }}
     steps:
-      - name: Build smartdns in Docker
+      - uses: actions/checkout@v3
+        with:
+          repository: lwb1978/openwrt-smartdns
+          path: openwrt-smartdns
+      - name: Set up OpenWrt SDK
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
+          mkdir -p ${{ github.workspace }}/openwrt-sdk
+          curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.2-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
+          file sdk.tar.zst | grep "Zstandard compressed data" || { echo "Invalid tar.zst file"; exit 1; }
+          tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
+      - name: Prepare feeds
+        run: |
+          cd ${{ github.workspace }}/openwrt-sdk
+          echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+      - name: Configure and build smartdns
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
-          sudo timedatectl set-timezone "Asia/Shanghai"
+          cd ${{ github.workspace }}/openwrt-sdk
+          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/smartdns/Makefile
+          make package/smartdns/compile V=s
           mkdir -p ${{ github.workspace }}/build
-          docker pull openwrtorg/sdk:${{ matrix.sdk_tag }}
-          docker run --rm -v ${{ github.workspace }}/build:/build -w /builder -e CUR_VERSION openwrtorg/sdk:${{ matrix.sdk_tag }} sh -c "echo 'src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git' >> feeds.conf.default && ./scripts/feeds update -a && ./scripts/feeds install -a && sed -i \"s/VER=.*/VER=\$CUR_VERSION/\" feeds/smartdns/Makefile && make package/smartdns/compile V=s && cp bin/packages/${{ matrix.package_arch }}/smartdns/smartdns*.ipk /build/ || true"
+          cp bin/packages/${{ matrix.package_arch }}/smartdns/smartdns*.ipk ${{ github.workspace }}/build/ || true
       - name: Generate release tag
         id: tag
         run: |
@@ -79,14 +101,34 @@ jobs:
     needs: [get-version, build-smartdns]
     runs-on: ubuntu-latest
     steps:
-      - name: Build luci-app-smartdns in Docker
+      - uses: actions/checkout@v3
+        with:
+          repository: lwb1978/luci-app-smartdns
+          path: luci-app-smartdns
+      - name: Set up OpenWrt SDK
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
+          mkdir -p ${{ github.workspace }}/openwrt-sdk
+          curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/x86/64/openwrt-sdk-24.10.2-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
+          file sdk.tar.zst | grep "Zstandard compressed data" || { echo "Invalid tar.zst file"; exit 1; }
+          tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
+      - name: Prepare feeds
+        run: |
+          cd ${{ github.workspace }}/openwrt-sdk
+          echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
+          echo "src-git luci_app_smartdns https://github.com/lwb1978/luci-app-smartdns.git" >> feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+      - name: Configure and build luci-app-smartdns
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
-          sudo timedatectl set-timezone "Asia/Shanghai"
+          cd ${{ github.workspace }}/openwrt-sdk
+          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/luci_app_smartdns/Makefile
+          make package/luci-app-smartdns/compile V=s
           mkdir -p ${{ github.workspace }}/build
-          docker pull openwrtorg/sdk:x86-64-24.10.2
-          docker run --rm -v ${{ github.workspace }}/build:/build -w /builder -e CUR_VERSION openwrtorg/sdk:x86-64-24.10.2 sh -c "echo 'src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git' >> feeds.conf.default && echo 'src-git luci_app_smartdns https://github.com/lwb1978/luci-app-smartdns.git' >> feeds.conf.default && ./scripts/feeds update -a && ./scripts/feeds install -a && sed -i \"s/VER=.*/VER=\$CUR_VERSION/\" feeds/luci_app_smartdns/Makefile && make package/luci-app-smartdns/compile V=s && cp bin/packages/x86_64/luci_app_smartdns/luci-app-smartdns*.ipk /build/ || true"
+          cp bin/packages/x86_64/luci_app_smartdns/luci-app-smartdns*.ipk ${{ github.workspace }}/build/ || true
       - name: Generate release tag
         id: tag
         run: |
