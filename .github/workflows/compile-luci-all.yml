@@ -66,6 +66,7 @@ jobs:
           echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          make defconfig
       - name: Configure and build smartdns
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
@@ -117,6 +118,7 @@ jobs:
           echo "src-git luci_app_smartdns https://github.com/lwb1978/luci-app-smartdns.git" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          make defconfig
       - name: Configure and build luci-app-smartdns
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
