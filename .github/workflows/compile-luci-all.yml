@@ -40,13 +40,13 @@ jobs:
             subtarget: 64
             package_arch: x86_64
           - arch: aarch64
-            target: armvirt
-            subtarget: 64
-            package_arch: aarch64_cortex-a53
+            target: armsr
+            subtarget: armv8
+            package_arch: aarch64
           - arch: armv7
-            target: armvirt
-            subtarget: 32
-            package_arch: arm_cortex-a9_vfpv3-d16
+            target: armsr
+            subtarget: armv7
+            package_arch: armv7
       fail-fast: false
     runs-on: ubuntu-latest
     env:
