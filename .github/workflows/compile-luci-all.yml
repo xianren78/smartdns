@@ -61,7 +61,6 @@ jobs:
       - name: Configure and build smartdns
         run: |
           cd ${{ github.workspace }}/openwrt-sdk
-          make menuconfig # Pre-configure to select luci-app-smartdns and dependencies
           sed -i "s/VER=.*/VER=${{ needs.get-version.outputs.CUR_VERSION }}/" feeds/smartdns/Makefile
           make package/smartdns/compile V=s
           mkdir -p ${{ github.workspace }}/build
@@ -110,11 +109,10 @@ jobs:
       - name: Configure and build luci-app-smartdns
         run: |
           cd ${{ github.workspace }}/openwrt-sdk
-          make menuconfig # Pre-configure to select luci-app-smartdns and dependencies
           sed -i "s/VER=.*/VER=${{ needs.get-version.outputs.CUR_VERSION }}/" feeds/luci_app_smartdns/Makefile
           make package/luci-app-smartdns/compile V=s
           mkdir -p ${{ github.workspace }}/build
-          cp bin/packages/x86_64/luci_app_smartdns*.ipk ${{ github.workspace }}/build/
+          cp bin/packages/x86_64/luci-app-smartdns*.ipk ${{ github.workspace }}/build/
       - name: Generate release tag
         id: tag
         run: |
