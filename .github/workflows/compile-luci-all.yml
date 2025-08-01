@@ -26,10 +26,9 @@ jobs:
       - name: Get version
         id: get-version
         run: |
-          pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
-          cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          pre_version=$(grep "PREFEX" version_control/VERSION | sed 's/PREFEX=//')
+          cur_version=$(grep "CUR_VERS" version_control/VERSION | sed 's/CUR_VERS=//')
           echo "CUR_VERSION=$pre_version$cur_version" >> $GITHUB_OUTPUT
-
   build-smartdns:
     needs: get-version
     strategy:
@@ -48,43 +47,47 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v3
-        with:
-          repository: lwb1978/openwrt-smartdns
-          path: openwrt-smartdns
-      - name: Set up OpenWrt SDK
+      - name: Download and extract OpenWrt SDK
         run: |
           sudo apt update
           sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
-          mkdir -p ${{ github.workspace }}/openwrt-sdk
+          mkdir -p openwrt-sdk
           curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.2-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
-          file sdk.tar.zst | grep "Zstandard compressed data" || { echo "Invalid tar.zst file"; exit 1; }
           tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
-      - name: Prepare feeds
+
+      - name: Clone smartdns source into feeds
         run: |
-          cd ${{ github.workspace }}/openwrt-sdk
-          echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
+          cd openwrt-sdk
+          WORKINGDIR="feeds/packages/net/smartdns"
+          rm -rf "$WORKINGDIR"
+          mkdir -p "$WORKINGDIR"
+          git clone https://github.com/lwb1978/openwrt-smartdns.git "$WORKINGDIR"
+
+      - name: Update and install feeds (smartdns)
+        run: |
+          cd openwrt-sdk
           ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds install smartdns
           make defconfig
-      - name: Configure and build smartdns
+
+      - name: Build smartdns
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
-          export TERM=xterm
-          cd ${{ github.workspace }}/openwrt-sdk
-          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/smartdns/Makefile
+          cd openwrt-sdk
+          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/packages/net/smartdns/Makefile
           make package/smartdns/compile V=s
-          mkdir -p ${{ github.workspace }}/build
-          cp bin/packages/${{ matrix.package_arch }}/smartdns/smartdns*.ipk ${{ github.workspace }}/build/ || true
+          mkdir -p $GITHUB_WORKSPACE/build
+          cp bin/packages/${{ matrix.package_arch }}/smartdns/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+
       - name: Generate release tag
         id: tag
         run: |
           echo "release_tag=${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT
-          touch release.txt
-          echo "Build openwrt-smartdns for ${{ matrix.arch }}" >> release.txt
+          echo "Build openwrt-smartdns for ${{ matrix.arch }}" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
+
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'
@@ -94,49 +97,51 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ github.workspace }}/build/*.ipk
-
   build-luci:
     needs: [get-version, build-smartdns]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-        with:
-          repository: lwb1978/luci-app-smartdns
-          path: luci-app-smartdns
-      - name: Set up OpenWrt SDK
+      - name: Download and extract OpenWrt SDK
         run: |
           sudo apt update
           sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
-          mkdir -p ${{ github.workspace }}/openwrt-sdk
+          mkdir -p openwrt-sdk
           curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/x86/64/openwrt-sdk-24.10.2-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
-          file sdk.tar.zst | grep "Zstandard compressed data" || { echo "Invalid tar.zst file"; exit 1; }
           tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
-      - name: Prepare feeds
+
+      - name: Clone luci-app-smartdns source into feeds
         run: |
-          cd ${{ github.workspace }}/openwrt-sdk
-          echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
-          echo "src-git luci_app_smartdns https://github.com/lwb1978/luci-app-smartdns.git" >> feeds.conf.default
+          cd openwrt-sdk
+          WORKINGDIR="feeds/luci/applications/luci-app-smartdns"
+          rm -rf "$WORKINGDIR"
+          mkdir -p "$WORKINGDIR"
+          git clone https://github.com/lwb1978/luci-app-smartdns.git "$WORKINGDIR"
+
+      - name: Update and install feeds (luci)
+        run: |
+          cd openwrt-sdk
           ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds install luci-app-smartdns
           make defconfig
-      - name: Configure and build luci-app-smartdns
+
+      - name: Build luci-app-smartdns
         env:
           CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
-          export TERM=xterm
-          cd ${{ github.workspace }}/openwrt-sdk
-          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/luci_app_smartdns/Makefile
+          cd openwrt-sdk
+          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/luci/applications/luci-app-smartdns/Makefile
           make package/luci-app-smartdns/compile V=s
-          mkdir -p ${{ github.workspace }}/build
-          cp bin/packages/x86_64/luci_app_smartdns/luci-app-smartdns*.ipk ${{ github.workspace }}/build/ || true
+          mkdir -p $GITHUB_WORKSPACE/build
+          cp bin/packages/x86_64/luci-app-smartdns/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+
       - name: Generate release tag
         id: tag
         run: |
           echo "release_tag=${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT
-          touch release.txt
-          echo "Build luci-app-smartdns" >> release.txt
+          echo "Build luci-app-smartdns" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
+
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'
@@ -160,14 +165,15 @@ jobs:
       - name: Update version
         run: |
           cd version_control
-          pre_version=$(cat VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
-          cur_version=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
-          cur_version=$(($cur_version + 1))
-          sed -i "s/CUR_VERS=.*/CUR_VERS=$cur_version/" VERSION
+          pre_version=$(grep "PREFEX" VERSION | sed 's/PREFEX=//')
+          cur_version=$(grep "CUR_VERS" VERSION | sed 's/CUR_VERS=//')
+          new_version=$(($cur_version + 1))
+          sed -i "s/CUR_VERS=.*/CUR_VERS=$new_version/" VERSION
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add VERSION
-          git commit -m "Update version to $pre_version$cur_version"
+          git commit -m "Update version to $pre_version$new_version"
+
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
