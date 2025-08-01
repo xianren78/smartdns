@@ -55,7 +55,7 @@ jobs:
       - name: Prepare feeds
         run: |
           cd ${{ github.workspace }}/openwrt-sdk
-          echo "src-git smartdns https://github.com/lwb1978/openwrt/openwrt-smartdns.git" >> feeds.conf.default
+          echo "src-git smartdns https://github.com/lwb1978/openwrt-smartdns.git" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
       - name: Configure and build smartdns
