@@ -49,10 +49,8 @@ jobs:
           WORKINGDIR="feeds/packages/net/smartdns"
           rm -rf "$WORKINGDIR"
           rm -rf feeds/luci/applications/luci-app-smartdns
-          mkdir -p "$WORKINGDIR"
-          mkdir -p feeds/luci/applications/luci-app-smartdns
           git clone https://github.com/lwb1978/openwrt-smartdns.git "$WORKINGDIR"
-          git clone https://github.com/lwb1978/luci-app-smartdns.git "$WORKINGDIR"
+          git clone https://github.com/lwb1978/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns
           ./scripts/feeds install -f smartdns
           ./scripts/feeds install -f luci-app-smartdns
           cat <<EOF > .config
@@ -113,10 +111,8 @@ jobs:
           WORKINGDIR="feeds/packages/net/smartdns"
           rm -rf "$WORKINGDIR"
           rm -rf feeds/luci/applications/luci-app-smartdns
-          mkdir -p "$WORKINGDIR"
-          mkdir -p feeds/luci/applications/luci-app-smartdns
           git clone https://github.com/lwb1978/openwrt-smartdns.git "$WORKINGDIR"
-          git clone https://github.com/lwb1978/luci-app-smartdns.git "$WORKINGDIR"
+          git clone https://github.com/lwb1978/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns
           ./scripts/feeds install -f smartdns
           ./scripts/feeds install -f luci-app-smartdns
           cat <<EOF > .config
