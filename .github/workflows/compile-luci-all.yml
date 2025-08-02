@@ -54,16 +54,21 @@ jobs:
           git clone https://github.com/lwb1978/openwrt-smartdns.git "$WORKINGDIR"
           ./scripts/feeds install -f smartdns
           ./scripts/feeds install -f luci-app-smartdns
+          cat <<EOF > .config
+          CONFIG_PACKAGE_smartdns=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-app-smartdns=y
+          CONFIG_TARGET_IMAGES=n
+          EOF
           make defconfig
 
       - name: Build smartdns
         run: |
           cd openwrt-sdk
           make package/smartdns/compile V=s
-          make package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
           cp bin/packages/${{ matrix.package_arch }}/smartdns/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
-          cp bin/packages/x86_64/luci-app-smartdns/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
 
       - name: Generate release tag
         id: tag
