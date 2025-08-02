@@ -70,7 +70,7 @@ jobs:
           make package/smartdns/compile V=s
           make package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
-          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.target }}/${{ matrix.subtarget }}/packages/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
 
       - name: Generate release tag
         id: tag
@@ -133,7 +133,7 @@ jobs:
           cd openwrt-sdk
           make package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
-          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/x86/64/packages/*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/x86_64/packages/*.ipk $GITHUB_WORKSPACE/build/ || true
 
       - name: Generate release tag
         id: tag
