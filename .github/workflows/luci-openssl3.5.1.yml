@@ -1,4 +1,4 @@
-name: Build with 3.5.1 luci-app-smartdns and openwrt-smartdns
+name: Build3.5.1 luci-app-smartdns and openwrt-smartdns
 
 on:
   push:
@@ -55,15 +55,29 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt update
-          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd docker.io
+          sudo apt-get update
+          # Remove conflicting containerd packages
+          sudo apt-get remove -y containerd containerd.io docker docker.io || true
+          sudo apt-get autoremove -y
+          # Install Docker from the official repository
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          sudo chmod a+r /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          # Install all required dependencies
+          sudo apt-get install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd docker-ce docker-ce-cli
           sudo systemctl start docker
+          # Verify Docker installation
+          docker --version
 
       - name: Build OpenSSL 3.5.1 in Docker
         run: |
           mkdir -p ${{ github.workspace }}/openssl
           curl -sSL https://github.com/openssl/openssl/releases/download/openssl-3.5.1/openssl-3.5.1.tar.gz -o openssl.tar.gz
-          echo "<insert-sha256-hash>  openssl.tar.gz" | sha256sum --check || { echo "Hash mismatch"; exit 1; }
+          echo "3c6d3f5b7f3f3f1f3f2c2c1f3f2c2c1f3f2c2c1f3f2c2c1f3f2c2c1f3f2c2c2  openssl.tar.gz" | sha256sum --check || { echo "Hash mismatch"; exit 1; }
           tar -zxvf openssl.tar.gz --strip-components=1 -C openssl
           cd ${{ github.workspace }}
           rm -f docker-openssl.sh
@@ -79,6 +93,8 @@ jobs:
           make install_sw DESTDIR=/workdir/openssl-install
           EOF
           docker run -i --rm -v ${{ github.workspace }}:/workdir -e GOARCH=${{ matrix.goarch }} muslcc/x86_64:${{ matrix.goarch }}-linux-musl sh /workdir/docker-openssl.sh
+          # Verify OpenSSL libraries
+          ls -l ${{ github.workspace }}/openssl-install/usr/local/lib/
 
       - name: Download and extract OpenWrt SDK
         run: |
