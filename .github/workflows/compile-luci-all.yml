@@ -65,15 +65,14 @@ jobs:
       - name: Build smartdns
         run: |
           cd openwrt-sdk
-          make -j$(nproc) package/smartdns/compile package/luci-app-smartdns/compile
-          #make package/luci-app-smartdns/compile V=s
+          make -j$(nproc) package/smartdns/compile
           mkdir -p $GITHUB_WORKSPACE/build
           cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
-
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
       - name: Generate release tag
         id: tag
         run: |
-          echo "release_tag= 20250802-${{ matrix.package_arch }}" >> $GITHUB_OUTPUT
+          echo "release_tag= smartdns-${{ matrix.package_arch }}" >> $GITHUB_OUTPUT
           echo "Build openwrt-smartdns for ${{ matrix.arch }}" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
@@ -129,12 +128,12 @@ jobs:
           cd openwrt-sdk
           make -j$(nproc) package/luci-app-smartdns/compile
           mkdir -p $GITHUB_WORKSPACE/build
-          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/x86_64/packages/*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/x86_64/packages/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
 
       - name: Generate release tag
         id: tag
         run: |
-          echo "release_tag= 20250802-${{ matrix.package_arch }}" >> $GITHUB_OUTPUT
+          echo "release_tag= luci-${{ matrix.package_arch }}" >> $GITHUB_OUTPUT
           echo "Build luci-app-smartdns" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
