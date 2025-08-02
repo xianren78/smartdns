@@ -65,8 +65,8 @@ jobs:
       - name: Build smartdns
         run: |
           cd openwrt-sdk
-          make package/smartdns/compile V=s
-          make package/luci-app-smartdns/compile V=s
+          make -j$(nproc) package/smartdns/compile package/luci-app-smartdns/compile
+          #make package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
           cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
 
@@ -127,7 +127,7 @@ jobs:
       - name: Build luci-app-smartdns
         run: |
           cd openwrt-sdk
-          make package/luci-app-smartdns/compile V=s
+          make -j$(nproc) package/luci-app-smartdns/compile
           mkdir -p $GITHUB_WORKSPACE/build
           cp ${{ github.workspace }}/openwrt-sdk/bin/packages/x86_64/packages/*.ipk $GITHUB_WORKSPACE/build/ || true
 
