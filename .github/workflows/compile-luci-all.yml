@@ -65,76 +65,16 @@ jobs:
       - name: Build smartdns
         run: |
           cd openwrt-sdk
-          make -j$(nproc) package/smartdns/compile
+          make -j$(nproc) package/luci-app-smartdns/compile package/smartdns/compile
           mkdir -p $GITHUB_WORKSPACE/build
           cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
           cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+
       - name: Generate release tag
         id: tag
         run: |
           echo "release_tag= smartdns-${{ matrix.package_arch }}" >> $GITHUB_OUTPUT
           echo "Build openwrt-smartdns for ${{ matrix.arch }}" > release.txt
-          echo "Commit: ${{ github.sha }}" >> release.txt
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v1
-        if: steps.tag.outputs.status == 'success'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          body_path: release.txt
-          files: ${{ github.workspace }}/build/*.ipk
-  build-luci:
-    needs: [build-smartdns]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download and extract OpenWrt SDK
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd
-          mkdir -p openwrt-sdk
-          curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/x86/64/openwrt-sdk-24.10.2-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
-          tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
-
-      - name: Clone luci-app-smartdns source into feeds
-        run: |
-          cd openwrt-sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Update and install feeds (luci)
-        run: |
-          cd openwrt-sdk
-          WORKINGDIR="feeds/packages/net/smartdns"
-          rm -rf "$WORKINGDIR"
-          rm -rf feeds/luci/applications/luci-app-smartdns
-          git clone https://github.com/lwb1978/openwrt-smartdns.git "$WORKINGDIR"
-          git clone https://github.com/lwb1978/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns
-          ./scripts/feeds install -f smartdns
-          ./scripts/feeds install -f luci-app-smartdns
-          cat <<EOF > .config
-          CONFIG_PACKAGE_smartdns=y
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-compat=y
-          CONFIG_PACKAGE_luci-app-smartdns=y
-          CONFIG_TARGET_IMAGES=n
-          EOF
-          make defconfig
-
-      - name: Build luci-app-smartdns
-        run: |
-          cd openwrt-sdk
-          make -j$(nproc) package/luci-app-smartdns/compile
-          mkdir -p $GITHUB_WORKSPACE/build
-          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/x86_64/packages/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
-
-      - name: Generate release tag
-        id: tag
-        run: |
-          echo "release_tag= luci-${{ matrix.package_arch }}" >> $GITHUB_OUTPUT
-          echo "Build luci-app-smartdns" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
 
