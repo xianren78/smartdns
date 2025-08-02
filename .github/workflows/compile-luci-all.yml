@@ -23,7 +23,7 @@ jobs:
           - arch: aarch64
             target: armsr
             subtarget: armv8
-            package_arch: aarch64
+            package_arch: aarch64_generic
       fail-fast: false
     runs-on: ubuntu-latest
     env:
@@ -67,8 +67,9 @@ jobs:
           cd openwrt-sdk
           make -j$(nproc) package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
-          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/*smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
-         # cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp ${{ github.workspace }}/openwrt-sdk/bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns-zh-cn*.ipk $GITHUB_WORKSPACE/build/ || true
 
       - name: Generate release tag
         id: tag
