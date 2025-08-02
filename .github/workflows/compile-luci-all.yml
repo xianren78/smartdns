@@ -12,25 +12,7 @@ on:
         default: 'false'
 
 jobs:
-  get-version:
-    name: Get latest version number
-    runs-on: ubuntu-latest
-    outputs:
-      CUR_VERSION: ${{ steps.get-version.outputs.CUR_VERSION }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: VERSION_CONTROL
-          fetch-depth: 1
-          path: version_control
-      - name: Get version
-        id: get-version
-        run: |
-          pre_version=$(grep "PREFEX" version_control/VERSION | sed 's/PREFEX=//')
-          cur_version=$(grep "CUR_VERS" version_control/VERSION | sed 's/CUR_VERS=//')
-          echo "CUR_VERSION=$pre_version$cur_version" >> $GITHUB_OUTPUT
   build-smartdns:
-    needs: get-version
     strategy:
       matrix:
         include:
@@ -55,35 +37,38 @@ jobs:
           curl -sSL --retry 3 --retry-delay 5 https://mirror-03.infra.openwrt.org/releases/24.10.2/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.2-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
           tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
 
+      - name: Update and install feeds (smartdns)
+        run: |
+          cd openwrt-sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
       - name: Clone smartdns source into feeds
         run: |
           cd openwrt-sdk
           WORKINGDIR="feeds/packages/net/smartdns"
           rm -rf "$WORKINGDIR"
+          rm -rf feeds/luci/applications/luci-app-smartdns
           mkdir -p "$WORKINGDIR"
+          mkdir -p feeds/luci/applications/luci-app-smartdns
           git clone https://github.com/lwb1978/openwrt-smartdns.git "$WORKINGDIR"
-
-      - name: Update and install feeds (smartdns)
-        run: |
-          cd openwrt-sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install smartdns
+          ./scripts/feeds install -f smartdns
+          ./scripts/feeds install -f luci-app-smartdns
           make defconfig
 
       - name: Build smartdns
-        env:
-          CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
           cd openwrt-sdk
-          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/packages/net/smartdns/Makefile
           make package/smartdns/compile V=s
+          make package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
           cp bin/packages/${{ matrix.package_arch }}/smartdns/smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
+          cp bin/packages/x86_64/luci-app-smartdns/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
 
       - name: Generate release tag
         id: tag
         run: |
-          echo "release_tag=${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT
+          echo "release_tag= 20250802" >> $GITHUB_OUTPUT
           echo "Build openwrt-smartdns for ${{ matrix.arch }}" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
@@ -98,7 +83,7 @@ jobs:
           body_path: release.txt
           files: ${{ github.workspace }}/build/*.ipk
   build-luci:
-    needs: [get-version, build-smartdns]
+    needs: [build-smartdns]
     runs-on: ubuntu-latest
     steps:
       - name: Download and extract OpenWrt SDK
@@ -121,15 +106,12 @@ jobs:
         run: |
           cd openwrt-sdk
           ./scripts/feeds update -a
-          ./scripts/feeds install luci-app-smartdns
+          ./scripts/feeds install -a
           make defconfig
 
       - name: Build luci-app-smartdns
-        env:
-          CUR_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
         run: |
           cd openwrt-sdk
-          sed -i "s/VER=.*/VER=$CUR_VERSION/" feeds/luci/applications/luci-app-smartdns/Makefile
           make package/luci-app-smartdns/compile V=s
           mkdir -p $GITHUB_WORKSPACE/build
           cp bin/packages/x86_64/luci-app-smartdns/luci-app-smartdns*.ipk $GITHUB_WORKSPACE/build/ || true
@@ -137,7 +119,7 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          echo "release_tag=${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT
+          echo "release_tag= 20250802" >> $GITHUB_OUTPUT
           echo "Build luci-app-smartdns" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
@@ -151,32 +133,3 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ github.workspace }}/build/*.ipk
-
-  update-version:
-    if: ((github.event_name == 'workflow_dispatch' && github.event.inputs.update-version-number == 'true') || github.event_name == 'push')
-    needs: [build-smartdns, build-luci]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: VERSION_CONTROL
-          fetch-depth: 1
-          path: version_control
-      - name: Update version
-        run: |
-          cd version_control
-          pre_version=$(grep "PREFEX" VERSION | sed 's/PREFEX=//')
-          cur_version=$(grep "CUR_VERS" VERSION | sed 's/CUR_VERS=//')
-          new_version=$(($cur_version + 1))
-          sed -i "s/CUR_VERS=.*/CUR_VERS=$new_version/" VERSION
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add VERSION
-          git commit -m "Update version to $pre_version$new_version"
-
-      - name: Push changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: VERSION_CONTROL
-          directory: ./version_control
