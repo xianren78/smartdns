@@ -21,7 +21,10 @@ SLIBDIR := $(PREFIX)/lib
 DESTDIR :=
 CARGO_BUILD_ENV :=
 SMARTDNS_SRC_DIR=../../src
- 
+
+# Strip 'ccache ' prefix from CC if present to disable ccache
+CC := $(shell echo $(CC) | sed 's/^ccache //')
+
 ifeq ($(origin CC), environment)
   ifeq ($(CARGO_BUILD_TARGET),)
     ifeq ($(CARGO_BUILD_ARGS),)
