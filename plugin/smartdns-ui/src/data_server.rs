@@ -38,6 +38,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio::time::Instant;
+use tokio::runtime::Handle;
 
 pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
 pub const DEFAULT_MAX_LOG_AGE_MS: u64 = DEFAULT_MAX_LOG_AGE * 1000;
@@ -115,6 +116,8 @@ pub struct DataServerControl {
     is_init: Mutex<bool>,
     is_run: Mutex<bool>,
     plugin: Mutex<Weak<SmartdnsPlugin>>,
+    /// 缓存的 Tokio runtime 句柄；启动时设置，后续统一使用
+    rt: Mutex<Option<Handle>>,
 }
 
 impl DataServerControl {
@@ -125,6 +128,7 @@ impl DataServerControl {
             is_init: Mutex::new(false),
             is_run: Mutex::new(false),
             plugin: Mutex::new(Weak::new()),
+            rt: Mutex::new(None),
         }
     }
 
@@ -168,7 +172,14 @@ impl DataServerControl {
 
         let plugin = self.get_plugin()?;
         self.data_server.set_plugin(plugin.clone());
+
+        // 启动时一次性获取 runtime，并缓存（Control 与 DataServer 各持一份）
         let rt = plugin.get_runtime();
+        {
+            let mut g = self.rt.lock().unwrap();
+            *g = Some(rt.clone());
+        }
+        self.data_server.set_runtime(rt.clone());
 
         let server_thread = rt.spawn(async move {
             let ret = DataServer::data_server_loop(inner_clone).await;
@@ -193,23 +204,20 @@ impl DataServerControl {
         self.data_server.stop_data_server();
         let _server_thread = self.server_thread.lock().unwrap().take();
         if let Some(server_thread) = _server_thread {
-            let plugin = self.get_plugin();
-            if plugin.is_err() {
+            // 使用缓存的 runtime 句柄进行 join；不再依赖 Weak 升级
+            let rt_opt = self.rt.lock().unwrap().as_ref().cloned();
+            if let Some(rt) = rt_opt {
+                tokio::task::block_in_place(|| {
+                    if let Err(e) = rt.block_on(server_thread) {
+                        dns_log!(LogLevel::ERROR, "data server stop error: {}", e);
+                    }
+                });
+            } else {
                 dns_log!(
-                    LogLevel::ERROR,
-                    "get plugin error: {}",
-                    plugin.err().unwrap()
+                    LogLevel::WARN,
+                    "stop_data_server without runtime handle; join skipped"
                 );
-                return;
             }
-
-            let plugin = plugin.unwrap();
-            let rt = plugin.get_runtime();
-            tokio::task::block_in_place(|| {
-                if let Err(e) = rt.block_on(server_thread) {
-                    dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
-                }
-            });
         }
         *self.is_run.lock().unwrap() = false;
     }
@@ -257,6 +265,8 @@ pub struct DataServer {
     stat: Arc<DataStats>,
     server_log: ServerLog,
     plugin: Mutex<Weak<SmartdnsPlugin>>,
+    /// 缓存的 Tokio runtime 句柄；由 Control 在启动时注入
+    rt: Mutex<Option<Handle>>,
     whois: whois::WhoIs,
     startup_timestamp: u64,
     recv_in_batch: Mutex<bool>,
@@ -276,6 +286,7 @@ impl DataServer {
             stat: DataStats::new(db, conf.clone()),
             server_log: ServerLog::new(),
             plugin: Mutex::new(Weak::new()),
+            rt: Mutex::new(None),
             whois: whois::WhoIs::new(),
             startup_timestamp: get_utc_time_ms(),
             disable_handle_request: AtomicBool::new(false),
@@ -344,6 +355,21 @@ impl DataServer {
             return Ok(plugin);
         }
         Err("Plugin is not set".into())
+    }
+
+    /// 在启动阶段缓存 runtime 句柄
+    pub fn set_runtime(&self, handle: Handle) {
+        *self.rt.lock().unwrap() = Some(handle);
+    }
+
+    /// 获取缓存的 runtime 句柄
+    fn runtime(&self) -> Result<Handle, &'static str> {
+        self.rt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .cloned()
+            .ok_or("runtime handle not set")
     }
 
     pub fn get_data_server_config(&self) -> DataServerConfig {
@@ -744,20 +770,19 @@ impl DataServer {
 
     fn stop_data_server(&self) {
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            let plugin = match self.get_plugin() {
-                Ok(plugin) => plugin,
-                Err(e) => {
-                    dns_log!(LogLevel::ERROR, "get plugin error: {}", e);
-                    return;
+            // 使用缓存的 runtime 发送关停通知；不再依赖 Weak 升级
+            match self.runtime() {
+                Ok(rt) => {
+                    tokio::task::block_in_place(|| {
+                        let _ = rt.block_on(async {
+                            let _ = tx.send(()).await;
+                        });
+                    });
                 }
-            };
-
-            let rt = plugin.get_runtime();
-            tokio::task::block_in_place(|| {
-                let _ = rt.block_on(async {
-                    let _ = tx.send(()).await;
-                });
-            });
+                Err(e) => {
+                    dns_log!(LogLevel::WARN, "stop_data_server without runtime handle: {}", e);
+                }
+            }
         }
     }
 
@@ -769,7 +794,12 @@ impl DataServer {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let rt = this.get_plugin().unwrap().get_runtime();
+        // 统一使用缓存的 runtime 句柄执行阻塞任务
+        let rt = this.runtime().map_err(|e| {
+            let s: &'static str = e;
+            let boxed: Box<dyn std::error::Error + Send> = Box::from(s);
+            boxed
+        })?;
 
         let ret = rt.spawn_blocking(move || -> R {
             return func();
