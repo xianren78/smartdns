@@ -794,9 +794,9 @@ impl DataServer {
         R: Send + 'static,
     {
         let handle = this.runtime().map_err(|e| {
-            let s: &'static str = e;
-            let boxed: Box<dyn std::error::Error + Send> = Box::from(s);
-            boxed
+           Box::<dyn std::error::Error + Send>::new(
+            std::io::Error::new(std::io::ErrorKind::Other, e),
+           )
         })?;
 
         let ret = handle.spawn_blocking(move || -> R {
