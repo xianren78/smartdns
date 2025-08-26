@@ -49,9 +49,9 @@ use std::time::Instant;
 use tokio::fs::read;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
+use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::runtime::Handle;
 cfg_if::cfg_if! {
     if #[cfg(feature = "https")] {
         use rustls_pemfile;
@@ -79,7 +79,6 @@ pub struct HttpServerConfig {
 
 impl HttpServerConfig {
     pub fn new() -> Self {
-
         let host_ip = if utils::is_ipv6_supported() {
             HTTP_SERVER_DEFAULT_IPV6.to_string()
         } else {
@@ -205,15 +204,17 @@ impl HttpServerControl {
 
         let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
 
-        // 启动时一次性获取 runtime，并缓存（Control 与 HttpServer 各持一份）
-        let rt = plugin.get_runtime();
+        // 一次性获取 runtime 的 Handle 并缓存
+        let rt = plugin.get_runtime();         // Arc<Runtime>
+        let handle = rt.handle().clone();      // Handle
+
         {
             let mut g = self.rt.lock().unwrap();
-            *g = Some(rt.clone());
+            *g = Some(handle.clone());
         }
-        inner_clone.set_runtime(rt.clone());
+        inner_clone.set_runtime(handle.clone());
 
-        let server_thread = rt.spawn(async move {
+        let server_thread = handle.spawn(async move {
             let ret = HttpServer::http_server_loop(inner_clone, tx).await;
             if let Err(e) = ret {
                 dns_log!(LogLevel::ERROR, "http server error: {}", e);
@@ -223,7 +224,7 @@ impl HttpServerControl {
         });
 
         tokio::task::block_in_place(|| {
-            let _ = rt.block_on(rx);
+            let _ = handle.block_on(rx);
         });
 
         *self.server_thread.lock().unwrap() = Some(server_thread);
@@ -242,10 +243,9 @@ impl HttpServerControl {
         self.http_server.stop_http_server();
 
         if let Some(server_thread) = server_thread.take() {
-            // 使用缓存的 runtime Join，不再依赖 Weak 升级
-            if let Some(rt) = self.rt.lock().unwrap().as_ref().cloned() {
+            if let Some(handle) = self.rt.lock().unwrap().as_ref().cloned() {
                 tokio::task::block_in_place(|| {
-                    if let Err(e) = rt.block_on(server_thread) {
+                    if let Err(e) = handle.block_on(server_thread) {
                         dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
                     }
                 });
@@ -419,7 +419,8 @@ impl HttpServer {
     /// 获取缓存的 runtime；若没有则报错（调用处不要再 fallback 到 plugin）
     fn runtime(&self) -> Result<Handle, &'static str> {
         self.rt
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .as_ref()
             .cloned()
             .ok_or("runtime handle not set")
@@ -944,11 +945,10 @@ impl HttpServer {
 
     fn stop_http_server(&self) {
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            // 使用缓存的 runtime 发送关停通知；不再依赖 Weak 升级
             match self.runtime() {
-                Ok(rt) => {
+                Ok(handle) => {
                     tokio::task::block_in_place(|| {
-                        let _ = rt.block_on(async {
+                        let _ = handle.block_on(async {
                             let _ = tx.send(()).await;
                         });
                     });
