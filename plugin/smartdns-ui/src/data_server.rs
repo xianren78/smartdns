@@ -116,7 +116,7 @@ pub struct DataServerControl {
     is_init: Mutex<bool>,
     is_run: Mutex<bool>,
     plugin: Mutex<Weak<SmartdnsPlugin>>,
-    /// 缓存的 Tokio runtime 句柄；启动时设置，后续统一使用
+    /// 缓存的 Tokio runtime 句柄；启动时注入，后续统一使用
     rt: Mutex<Option<Handle>>,
 }
 
@@ -173,13 +173,11 @@ impl DataServerControl {
         let plugin = self.get_plugin()?;
         self.data_server.set_plugin(plugin.clone());
 
-        // 一次性获取 runtime 的 Handle 并缓存
-        let rt = plugin.get_runtime();           // Arc<Runtime>
-        let handle = rt.handle().clone();        // Handle
-
+        // 仅在这里获取一次 Handle，并缓存到 Control 和 DataServer
+        let rt_arc = plugin.get_runtime();     // Arc<Runtime>
+        let handle = rt_arc.handle().clone();  // Handle
         {
-            let mut g = self.rt.lock().unwrap();
-            *g = Some(handle.clone());
+            *self.rt.lock().unwrap() = Some(handle.clone());
         }
         self.data_server.set_runtime(handle.clone());
 
@@ -209,14 +207,11 @@ impl DataServerControl {
             if let Some(handle) = self.rt.lock().unwrap().as_ref().cloned() {
                 tokio::task::block_in_place(|| {
                     if let Err(e) = handle.block_on(server_thread) {
-                        dns_log!(LogLevel::ERROR, "data server stop error: {}", e);
+                        dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
                     }
                 });
             } else {
-                dns_log!(
-                    LogLevel::WARN,
-                    "stop_data_server without runtime handle; join skipped"
-                );
+                dns_log!(LogLevel::WARN, "stop_data_server without runtime handle; join skipped");
             }
         }
         *self.is_run.lock().unwrap() = false;
@@ -265,7 +260,7 @@ pub struct DataServer {
     stat: Arc<DataStats>,
     server_log: ServerLog,
     plugin: Mutex<Weak<SmartdnsPlugin>>,
-    /// 缓存的 Tokio runtime 句柄；由 Control 在启动时注入
+    /// 缓存的 Tokio runtime 句柄；由 Control 在启动时注入，仅用它来跑阻塞/join
     rt: Mutex<Option<Handle>>,
     whois: whois::WhoIs,
     startup_timestamp: u64,
@@ -357,12 +352,12 @@ impl DataServer {
         Err("Plugin is not set".into())
     }
 
-    /// 在启动阶段缓存 runtime 句柄
+    /// 启动阶段由 Control 注入 Handle
     pub fn set_runtime(&self, handle: Handle) {
         *self.rt.lock().unwrap() = Some(handle);
     }
 
-    /// 获取缓存的 runtime 句柄
+    /// 获取缓存的 Handle；不再回落到通过 Weak 获取 runtime
     fn runtime(&self) -> Result<Handle, &'static str> {
         self.rt
             .lock()
@@ -793,9 +788,11 @@ impl DataServer {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let handle = this.runtime().map_err(|e| -> Box<dyn std::error::Error + Send> {
-			Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
-        })?;
+        let handle = this
+            .runtime()
+            .map_err(|e| -> Box<dyn std::error::Error + Send> {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+            })?;
 
         let ret = handle.spawn_blocking(move || -> R {
             return func();
@@ -808,6 +805,6 @@ impl DataServer {
 
         let ret = ret.unwrap();
 
-        return Ok(ret);
+        Ok(ret)
     }
 }
