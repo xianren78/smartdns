@@ -793,10 +793,8 @@ impl DataServer {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let handle = this.runtime().map_err(|e| {
-           Box::<dyn std::error::Error + Send>::new(
-            std::io::Error::new(std::io::ErrorKind::Other, e),
-           )
+        let handle = this.runtime().map_err(|e| -> Box<dyn std::error::Error + Send> {
+			Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
         })?;
 
         let ret = handle.spawn_blocking(move || -> R {
