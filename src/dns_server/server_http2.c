@@ -21,6 +21,7 @@
 #include "connection.h"
 #include "dns_server.h"
 #include "server_tls.h"
+#include "smartdns/dns_conf.h"
 #include "smartdns/http2.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
@@ -251,7 +252,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 		struct http2_poll_item poll_items[10];
 		int poll_count = 0;
 		int loop_count = 0;
-		const int MAX_LOOP_COUNT = 128;
+		const int MAX_LOOP_COUNT = 512;
 
 		/* Ensure handshake is complete */
 		ret = http2_ctx_handshake(ctx);
