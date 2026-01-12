@@ -236,10 +236,16 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 
 	/* Handle EPOLLOUT - flush pending writes */
 	if (event->events & EPOLLOUT) {
+		struct http2_poll_item poll_items[1];
+		int poll_count = 0;
 		int loop = 0;
 		while (http2_ctx_want_write(ctx) && loop++ < 10) {
-			if (http2_ctx_poll(ctx, NULL, 0, NULL) < 0) {
+			ret = http2_ctx_poll(ctx, poll_items, 1, &poll_count);
+			if (ret < 0) {
 				break;
+			}
+			if (poll_count > 0 && poll_items[0].stream) {
+				http2_stream_put(poll_items[0].stream);
 			}
 		}
 	}
@@ -269,7 +275,24 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 		/* Poll and process */
 		while (loop_count++ < MAX_LOOP_COUNT) {
 			poll_count = 0;
-			/* Process each polled stream */
+			ret = http2_ctx_poll_readable(ctx, poll_items, 10, &poll_count);
+			if (ret < 0) {
+				if (ret == HTTP2_ERR_EAGAIN) {
+					break;
+				}
+				if (ret == HTTP2_ERR_EOF) {
+					/* Connection closed by peer */
+					_dns_server_client_close(&tls_client->tcp.head);
+					return 0;
+				}
+				tlog(TLOG_DEBUG, "http2 poll failed, %s", http2_error_to_string(ret));
+				return -1;
+			}
+
+			if (poll_count == 0) {
+				continue;
+			}
+
 			for (int i = 0; i < poll_count; i++) {
 				if (poll_items[i].stream == NULL) {
 					if (poll_items[i].readable) {
@@ -277,7 +300,6 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 						if (stream) {
 							/* Accept and immediately process new HTTP/2 stream */
 							_dns_server_http2_process_stream(tls_client, stream);
-							http2_stream_put(stream); /* Release accept reference */
 						}
 					}
 					continue;
@@ -290,19 +312,6 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 				if (poll_items[i].stream) {
 					http2_stream_put(poll_items[i].stream); /* Release poll reference */
 				}
-			}
-
-			if (ret < 0) {
-				if (ret == HTTP2_ERR_EAGAIN) {
-					break;
-				}
-				if (ret == HTTP2_ERR_EOF) {
-					/* Connection closed by peer */
-					_dns_server_client_close(&tls_client->tcp.head);
-					return 0;
-				}
-				tlog(TLOG_DEBUG, "http2 poll failed, %s", http2_error_to_string(ret));
-				return -1;
 			}
 		}
 	}
